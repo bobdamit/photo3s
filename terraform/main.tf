@@ -164,6 +164,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
     id     = "transition_old_versions"
     status = "Enabled"
     
+    filter {}
+    
     noncurrent_version_transition {
       noncurrent_days = 30
       storage_class   = "STANDARD_IA"
@@ -237,32 +239,28 @@ resource "aws_ecr_lifecycle_policy" "lambda_repo" {
 # Docker Image Build and Push
 #===============================================================================
 
-resource "docker_build" "lambda_image" {
-  context = "${path.module}/.."
-  dockerfile = "Dockerfile"
-  
-  tags = ["${aws_ecr_repository.lambda_repo.repository_url}:latest"]
-  
+resource "null_resource" "lambda_image_build" {
   triggers = {
     lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
     package_hash     = filemd5("${path.module}/../package.json")
     dockerfile_hash  = filemd5("${path.module}/../Dockerfile")
+    ecr_repo_url     = aws_ecr_repository.lambda_repo.repository_url
   }
-}
 
-resource "docker_push" "lambda_image" {
-  name = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
-  
-  triggers = docker_build.lambda_image.triggers
-  
-  # ECR authentication for official docker provider
-  registry_auth {
-    address  = data.aws_ecr_authorization_token.token.proxy_endpoint
-    username = data.aws_ecr_authorization_token.token.user_name
-    password = data.aws_ecr_authorization_token.token.password
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Login to ECR
+      aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${aws_ecr_repository.lambda_repo.repository_url}
+      
+      # Build and tag the image
+      docker build -t ${aws_ecr_repository.lambda_repo.repository_url}:latest ${path.module}/..
+      
+      # Push the image
+      docker push ${aws_ecr_repository.lambda_repo.repository_url}:latest
+    EOT
   }
-  
-  depends_on = [docker_build.lambda_image]
+
+  depends_on = [aws_ecr_repository.lambda_repo]
 }
 
 #===============================================================================
@@ -400,7 +398,7 @@ resource "aws_lambda_function" "photo_processor" {
   depends_on = [
     aws_iam_role_policy_attachment.lambda_basic,
     aws_cloudwatch_log_group.lambda_logs,
-    docker_push.lambda_image
+    null_resource.lambda_image_build
   ]
 }
 

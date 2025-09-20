@@ -6,10 +6,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.14.0"
     }
-    docker = {
-      source  = "docker/docker"
-      version = "~> 0.5.2"
-    }
   }
 
   # Optional: Configure remote state
