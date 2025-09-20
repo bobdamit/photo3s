@@ -223,8 +223,8 @@ const CONFIG = {
 
 		// Upload all files in parallel for better performance
 		const uploadStart = Date.now();
-		console.info(`Uploading processed files to S3 (${uploadPromises.length} files)`);
 		const uploadPromises = [];
+		console.info(`Uploading processed files to S3`);
 
 		// Upload original with new name
 		uploadPromises.push(
