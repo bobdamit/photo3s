@@ -17,8 +17,15 @@ build/
 .env.test.local
 .env.production.local
 
-# AWS
+# AWS and Terraform
 .aws/
+*.tfstate
+*.tfstate.*
+*.tfvars.backup
+*.tfplan
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate.d/
 aws-exports.js
 *-policy.json
 

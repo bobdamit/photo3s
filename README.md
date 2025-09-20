@@ -1,298 +1,109 @@
-# Photo Processing Lambda
+# Photo3s - Production Photo Processing Pipeline
 
-An AWS Lambda function that automatically processes photo uploads to S3 by:
-- Creating multiple image sizes (small, medium, large) 
-- Extracting EXIF metadata including GPS coordinates
-- Renaming files based on shot date from metadata
-- Generating comprehensive JSON metadata files
+**Modern, containerized AWS Lambda system for automated photo processing with GitHub Actions CI/CD.**
 
-## Features
+## What This Does
 
-- **Multiple Image Sizes**: Automatically generates small (300px), medium (800px), and large (1920px) versions
-- **EXIF Data Extraction**: Extracts camera settings, GPS coordinates, and shot dates
-- **Smart Renaming**: Renames files based on actual photo date: `photo-YYYY-MM-DD_HH-MM-SS-camera.jpg`
-- **Comprehensive Metadata**: Creates detailed JSON files with all photo information
-- **Error Handling**: Robust error handling with CloudWatch logging
-- **Format Support**: JPG, JPEG, PNG, TIFF, WebP
+Automatically processes photos uploaded to S3 buckets:
+- **Creates 5 sizes**: thumbnail (150px), small (400px), medium (800px), large (1920px), original
+- **Extracts metadata**: EXIF, GPS, camera info, duplicate detection  
+- **Smart renaming**: Uses actual photo date: `photo-2024-09-19_14-30-25-Canon.jpg`
+- **Organized storage**: Structured folders with comprehensive JSON metadata
+- **Production ready**: Error handling, monitoring, multi-environment support
+
+## Architecture
+
+- **AWS Lambda** (Node.js 20.x container) - Photo processing engine
+- **Amazon S3** - Storage with event triggers  
+- **Amazon ECR** - Container registry
+- **Terraform** - Infrastructure as Code
+- **GitHub Actions** - Automated CI/CD pipeline
+- **CloudWatch** - Logging and monitoring
 
 ## File Structure Created
 
 ```
 processed/
-├── photo-2024-09-19_14-30-25-Canon.jpg          # Original with new name
-├── photo-2024-09-19_14-30-25-Canon_large.jpg    # 1920px version
-├── photo-2024-09-19_14-30-25-Canon_medium.jpg   # 800px version  
-├── photo-2024-09-19_14-30-25-Canon_small.jpg    # 300px version
-└── photo-2024-09-19_14-30-25-Canon.json         # Metadata file
+└── photo-2024-09-19_14-30-25-Canon/
+    ├── photo-2024-09-19_14-30-25-Canon.jpg       # Original  
+    ├── photo-2024-09-19_14-30-25-Canon_large.jpg # 1920px
+    ├── photo-2024-09-19_14-30-25-Canon_medium.jpg# 800px
+    ├── photo-2024-09-19_14-30-25-Canon_small.jpg # 400px
+    ├── photo-2024-09-19_14-30-25-Canon_thumb.jpg # 150px
+    └── photo-2024-09-19_14-30-25-Canon.json      # Metadata
 ```
+
+## How to Deploy
+
+**Zero local setup required!** Everything runs through GitHub Actions.
+
+1. **Configure GitHub Secrets** (`Settings → Secrets → Actions`):
+   ```
+   AWS_ACCESS_KEY_ID
+   AWS_SECRET_ACCESS_KEY  
+   AWS_REGION
+   ```
+
+2. **Edit configuration** in `terraform/dev.tfvars`:
+   ```hcl
+   source_buckets = ["your-photos-dev-bucket"]
+   lambda_memory = 512
+   delete_original = false
+   ```
+
+3. **Deploy by pushing**:
+   - Push to `develop` → deploys to dev environment
+   - Push to `main` → deploys to prod (with approval gate)
+
+## Project Structure
+
+```
+├── upload-lambda.js          # Lambda function code
+├── Dockerfile               # Container definition  
+├── terraform/              # Infrastructure as Code
+│   ├── main.tf            # AWS resources
+│   ├── dev.tfvars         # Development config
+│   └── prod.tfvars        # Production config
+├── .github/workflows/     # CI/CD pipeline
+└── docs/
+    ├── TERRAFORM.md       # Infrastructure details
+    ├── GITHUB_ACTIONS.md  # Pipeline documentation
+    └── QUICK_START.md     # Getting started guide
+```
+
+## Documentation
+
+- **[QUICK_START.md](QUICK_START.md)** - Get up and running in 10 minutes
+- **[GITHUB_ACTIONS.md](GITHUB_ACTIONS.md)** - CI/CD pipeline details  
+- **[TERRAFORM.md](TERRAFORM.md)** - Infrastructure architecture
+
+## Supported Formats
+
+- JPEG (.jpg, .jpeg)
+- PNG (.png)  
+- TIFF (.tiff, .tif)
+- WebP (.webp)
 
 ## Prerequisites
 
-- AWS CLI configured with appropriate permissions
-- Node.js 16+ installed locally
-- An S3 bucket for photo uploads
+- AWS account with programmatic access
+- GitHub repository with Actions enabled  
+- S3 bucket for photo uploads
 
-## Installation
+## Monitoring
 
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+After deployment, monitor your system through:
 
-2. **Create deployment package:**
-   ```bash
-   npm run zip
-   ```
+- **GitHub Actions** - Pipeline status and deployment logs
+- **AWS CloudWatch** - Lambda execution logs and metrics  
+- **AWS Console** - S3 bucket contents and processed files
 
-## Deployment Options
+## Contributing
 
-### Option 1: Automated Deployment with GitHub Actions (Recommended)
+1. Create feature branch
+2. Push to `develop` for testing
+3. Merge to `main` for production deployment (requires approval)
 
-For automatic deployment on every push to main branch:
+---
 
-1. **Set up GitHub Secrets** - See [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md) for detailed setup
-2. **Push to main branch** - Deployment happens automatically
-3. **Monitor in Actions tab** - Watch the deployment progress
-
-### Option 2: Manual Deployment
-
-### Step 1: Create the Lambda Function
-
-```bash
-# Create the Lambda function
-aws lambda create-function \
-  --function-name photo-processor \
-  --runtime nodejs18.x \
-  --role arn:aws:iam::YOUR_ACCOUNT_ID:role/lambda-execution-role \
-  --handler upload-lambda.handler \
-  --zip-file fileb://photo-lambda.zip \
-  --timeout 60 \
-  --memory-size 512
-```
-
-**Important**: Replace `YOUR_ACCOUNT_ID` with your actual AWS account ID.
-
-### Step 2: Create IAM Role (if you don't have one)
-
-Create a file called `trust-policy.json`:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "lambda.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-```
-
-Create the role:
-```bash
-aws iam create-role \
-  --role-name lambda-execution-role \
-  --assume-role-policy-document file://trust-policy.json
-```
-
-Attach policies:
-```bash
-# Basic Lambda execution
-aws iam attach-role-policy \
-  --role-name lambda-execution-role \
-  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-
-# S3 access (replace YOUR-BUCKET-NAME)
-aws iam put-role-policy \
-  --role-name lambda-execution-role \
-  --policy-name S3Access \
-  --policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "s3:GetObject",
-          "s3:PutObject"
-        ],
-        "Resource": "arn:aws:s3:::YOUR-BUCKET-NAME/*"
-      }
-    ]
-  }'
-```
-
-### Step 3: Configure S3 Bucket Trigger
-
-1. **Add S3 notification configuration:**
-   ```bash
-   aws s3api put-bucket-notification-configuration \
-     --bucket YOUR-BUCKET-NAME \
-     --notification-configuration '{
-       "LambdaConfigurations": [
-         {
-           "Id": "photo-processing-trigger",
-           "LambdaFunctionArn": "arn:aws:lambda:YOUR-REGION:YOUR_ACCOUNT_ID:function:photo-processor",
-           "Events": ["s3:ObjectCreated:*"],
-           "Filter": {
-             "Key": {
-               "FilterRules": [
-                 {
-                   "Name": "prefix",
-                   "Value": "uploads/"
-                 },
-                 {
-                   "Name": "suffix",
-                   "Value": ".jpg"
-                 }
-               ]
-             }
-           }
-         }
-       ]
-     }'
-   ```
-
-2. **Grant S3 permission to invoke Lambda:**
-   ```bash
-   aws lambda add-permission \
-     --function-name photo-processor \
-     --principal s3.amazonaws.com \
-     --action lambda:InvokeFunction \
-     --source-arn arn:aws:s3:::YOUR-BUCKET-NAME \
-     --statement-id s3-trigger
-   ```
-
-## Quick Setup Script
-
-Replace the variables and run this script for quick deployment:
-
-```bash
-#!/bin/bash
-
-# Configuration - CHANGE THESE VALUES
-BUCKET_NAME="your-photo-bucket"
-AWS_REGION="us-east-1"
-AWS_ACCOUNT_ID="123456789012"
-FUNCTION_NAME="photo-processor"
-
-# Build and deploy
-npm install
-npm run zip
-
-# Create Lambda function
-aws lambda create-function \
-  --function-name $FUNCTION_NAME \
-  --runtime nodejs18.x \
-  --role arn:aws:iam::$AWS_ACCOUNT_ID:role/lambda-execution-role \
-  --handler upload-lambda.handler \
-  --zip-file fileb://photo-lambda.zip \
-  --timeout 60 \
-  --memory-size 512 \
-  --region $AWS_REGION
-
-# Configure S3 trigger
-aws s3api put-bucket-notification-configuration \
-  --bucket $BUCKET_NAME \
-  --notification-configuration "$(cat <<EOF
-{
-  "LambdaConfigurations": [
-    {
-      "Id": "photo-processing-trigger",
-      "LambdaFunctionArn": "arn:aws:lambda:$AWS_REGION:$AWS_ACCOUNT_ID:function:$FUNCTION_NAME",
-      "Events": ["s3:ObjectCreated:*"],
-      "Filter": {
-        "Key": {
-          "FilterRules": [
-            {
-              "Name": "suffix",
-              "Value": ".jpg"
-            }
-          ]
-        }
-      }
-    }
-  ]
-}
-EOF
-)"
-
-# Grant S3 permission
-aws lambda add-permission \
-  --function-name $FUNCTION_NAME \
-  --principal s3.amazonaws.com \
-  --action lambda:InvokeFunction \
-  --source-arn arn:aws:s3:::$BUCKET_NAME \
-  --statement-id s3-trigger \
-  --region $AWS_REGION
-
-echo "Deployment complete! Upload photos to s3://$BUCKET_NAME/ to test."
-```
-
-## Testing
-
-1. **Upload a photo to your S3 bucket:**
-   ```bash
-   aws s3 cp your-photo.jpg s3://YOUR-BUCKET-NAME/uploads/
-   ```
-
-2. **Check CloudWatch logs:**
-   ```bash
-   aws logs describe-log-groups --log-group-name-prefix /aws/lambda/photo-processor
-   ```
-
-3. **View processed files:**
-   ```bash
-   aws s3 ls s3://YOUR-BUCKET-NAME/processed/
-   ```
-
-## Updating the Function
-
-After making code changes:
-
-```bash
-npm run zip
-aws lambda update-function-code \
-  --function-name photo-processor \
-  --zip-file fileb://photo-lambda.zip
-```
-
-## Troubleshooting
-
-### Common Issues:
-
-1. **Permission Denied**: Ensure Lambda execution role has S3 permissions
-2. **Timeout Errors**: Increase Lambda timeout for large images
-3. **Memory Issues**: Increase Lambda memory allocation
-4. **Sharp Module Issues**: Ensure you're using Lambda-compatible sharp binary
-
-### Viewing Logs:
-
-```bash
-aws logs tail /aws/lambda/photo-processor --follow
-```
-
-### Function Monitoring:
-
-Check the AWS Lambda console for:
-- Invocation count
-- Error rate  
-- Duration metrics
-- Memory usage
-
-## Configuration
-
-The function processes images in the root of the bucket by default. To change the trigger path, modify the S3 notification configuration's `prefix` filter.
-
-Supported formats: JPG, JPEG, PNG, TIFF, WebP
-
-## Dependencies
-
-- `aws-sdk`: AWS SDK for JavaScript
-- `sharp`: High-performance image processing
-- `exif-parser`: EXIF metadata extraction
-
-## License
-
-ISC# SSH is better for regular development!
+*This project uses modern DevOps practices with Infrastructure as Code and automated CI/CD for reliable, scalable photo processing.*
