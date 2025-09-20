@@ -237,15 +237,11 @@ resource "aws_ecr_lifecycle_policy" "lambda_repo" {
 # Docker Image Build and Push
 #===============================================================================
 
-resource "docker_image" "lambda_image" {
-  name = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+resource "docker_build" "lambda_image" {
+  context = "${path.module}/.."
+  dockerfile = "Dockerfile"
   
-  build {
-    context    = "${path.module}/.."
-    dockerfile = "Dockerfile"
-    
-    tag = ["${aws_ecr_repository.lambda_repo.repository_url}:latest"]
-  }
+  tags = ["${aws_ecr_repository.lambda_repo.repository_url}:latest"]
   
   triggers = {
     lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
@@ -254,10 +250,10 @@ resource "docker_image" "lambda_image" {
   }
 }
 
-resource "docker_registry_image" "lambda_image" {
-  name = docker_image.lambda_image.name
+resource "docker_push" "lambda_image" {
+  name = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
   
-  triggers = docker_image.lambda_image.triggers
+  triggers = docker_build.lambda_image.triggers
   
   # ECR authentication for official docker provider
   registry_auth {
@@ -265,6 +261,8 @@ resource "docker_registry_image" "lambda_image" {
     username = data.aws_ecr_authorization_token.token.user_name
     password = data.aws_ecr_authorization_token.token.password
   }
+  
+  depends_on = [docker_build.lambda_image]
 }
 
 #===============================================================================
@@ -377,7 +375,7 @@ resource "aws_lambda_function" "photo_processor" {
   
   # Container image configuration
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}@${docker_registry_image.lambda_image.sha256_digest}"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
   
   # Function configuration
   memory_size = var.lambda_memory
@@ -401,7 +399,8 @@ resource "aws_lambda_function" "photo_processor" {
   
   depends_on = [
     aws_iam_role_policy_attachment.lambda_basic,
-    aws_cloudwatch_log_group.lambda_logs
+    aws_cloudwatch_log_group.lambda_logs,
+    docker_push.lambda_image
   ]
 }
 
