@@ -27,7 +27,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
         cache: 'npm'
 
     - name: Install dependencies
@@ -51,7 +51,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
         cache: 'npm'
 
     - name: Install dependencies
@@ -89,7 +89,7 @@ jobs:
             Type: AWS::Serverless::Function
             Properties:
               FunctionName: ${{ env.LAMBDA_FUNCTION_NAME }}
-              Runtime: nodejs18.x
+              Runtime: nodejs20.x
               Handler: upload-lambda.handler
               CodeUri: .
               MemorySize: 512
@@ -163,7 +163,7 @@ jobs:
           echo ""
           echo "📋 What was deployed:"
           echo "   • Lambda Function: ${{ needs.deploy.outputs.function-name }}"
-          echo "   • Runtime: Node.js 18.x with sharp, exif-parser libraries"
+          echo "   • Runtime: Node.js 20.x with sharp, exif-parser libraries"
           echo "   • Memory: 512MB, Timeout: 60 seconds"
           echo "   • IAM Role: Automatically created by SAM"
           echo ""
