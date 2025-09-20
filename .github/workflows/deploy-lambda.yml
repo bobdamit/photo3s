@@ -383,9 +383,10 @@ jobs:
         
         echo ""
         echo "🔄 Updating Lambda environment variables..."
+        echo "Environment JSON: $ENV_VARS"
         aws lambda update-function-configuration \
           --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-          --environment Variables="$ENV_VARS"
+          --environment "Variables=$ENV_VARS"
         
         echo "✅ Environment variables configured successfully"
         echo ""
