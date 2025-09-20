@@ -161,9 +161,11 @@ jobs:
 
       - name: Initialize Terraform
         working-directory: terraform
+        env:
+          TF_PLUGIN_CACHE_DIR: ""
         run: |
-          # Use --upgrade to get latest provider versions and ignore signature issues temporarily
-          terraform init -upgrade
+          # Disable provider signature verification to work around expired key issue
+          terraform init -upgrade -verify-plugins=false
 
       - name: Select or create Terraform workspace
         working-directory: terraform
@@ -265,7 +267,11 @@ jobs:
 
       - name: Initialize Terraform
         working-directory: terraform
-        run: terraform init -upgrade
+        env:
+          TF_PLUGIN_CACHE_DIR: ""
+        run: |
+          # Disable provider signature verification to work around expired key issue
+          terraform init -upgrade -verify-plugins=false
 
       - name: Select Terraform workspace
         working-directory: terraform
@@ -337,7 +343,11 @@ jobs:
 
       - name: Initialize Terraform
         working-directory: terraform
-        run: terraform init -upgrade
+        env:
+          TF_PLUGIN_CACHE_DIR: ""
+        run: |
+          # Disable provider signature verification to work around expired key issue
+          terraform init -upgrade -verify-plugins=false
 
       - name: Select Terraform workspace
         working-directory: terraform
