@@ -429,6 +429,7 @@ exports.handler = async (event) => {
 				height: imageMetadata.height,
 				format: imageMetadata.format,
 			},
+			status: 'processed', // Track processing stage: processed -> enhanced -> published
 			exifData: exif
 				? {
 					make: exif.tags.Make,
