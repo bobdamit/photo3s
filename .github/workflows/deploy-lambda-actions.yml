@@ -17,6 +17,8 @@ env:
   PROCESSED_PREFIX: ${{ vars.PROCESSED_PREFIX || 'processed/' }}
   DELETE_ORIGINAL: ${{ vars.DELETE_ORIGINAL || 'true' }}
   CHECK_DUPLICATES: ${{ vars.CHECK_DUPLICATES || 'true' }}
+  DUPLICATE_ACTION: ${{ vars.DUPLICATE_ACTION || 'move' }}
+  DUPLICATES_PREFIX: ${{ vars.DUPLICATES_PREFIX || 'duplicates/' }}
 
 jobs:
   test:
@@ -89,6 +91,8 @@ jobs:
         ENV_VARS="${ENV_VARS}                  PROCESSED_PREFIX: \"${{ env.PROCESSED_PREFIX }}\"\n"
         ENV_VARS="${ENV_VARS}                  DELETE_ORIGINAL: \"${{ env.DELETE_ORIGINAL }}\"\n"
         ENV_VARS="${ENV_VARS}                  CHECK_DUPLICATES: \"${{ env.CHECK_DUPLICATES }}\"\n"
+        ENV_VARS="${ENV_VARS}                  DUPLICATE_ACTION: \"${{ env.DUPLICATE_ACTION }}\"\n"
+        ENV_VARS="${ENV_VARS}                  DUPLICATES_PREFIX: \"${{ env.DUPLICATES_PREFIX }}\"\n"
         
         # Only include optional variables if they're not empty
         if [ -n "${{ env.ALLOWED_SOURCE_BUCKETS }}" ]; then

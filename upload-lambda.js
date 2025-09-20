@@ -1,4 +1,4 @@
-const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, CopyObjectCommand } = require("@aws-sdk/client-s3");
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 const sharp = require("sharp");
 const ExifParser = require("exif-parser");
@@ -22,6 +22,12 @@ const CONFIG = {
 
 	// Whether to check for duplicates before processing
 	CHECK_DUPLICATES: process.env.CHECK_DUPLICATES !== 'false', // default true
+
+	// What to do with duplicate originals: 'delete', 'move', 'keep'
+	DUPLICATE_ACTION: process.env.DUPLICATE_ACTION || 'move',
+
+	// Prefix for duplicate files (when DUPLICATE_ACTION is 'move')
+	DUPLICATES_PREFIX: process.env.DUPLICATES_PREFIX || 'duplicates/',
 
 	// Skip processing if file already in processed folder
 	SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false' // default true
@@ -142,6 +148,66 @@ async function checkForDuplicates(targetBucket, shotDate, camera, fileSize, exif
 		console.warn("Duplicate check failed:", error.message);
 		// Don't fail processing if duplicate check fails
 		return { isDuplicate: false, error: error.message, filesChecked: 0 };
+	}
+}
+
+/**
+ * Handle duplicate file cleanup based on configuration
+ */
+async function handleDuplicateFile(sourceBucket, key, targetBucket, duplicateCheck, duplicateAction, duplicatesPrefix) {
+	try {
+		const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").split(".")[0];
+		
+		switch (duplicateAction.toLowerCase()) {
+			case 'delete':
+				console.info(`Deleting duplicate file: ${key}`);
+				await s3Client.send(new DeleteObjectCommand({
+					Bucket: sourceBucket,
+					Key: key
+				}));
+				console.info(`✅ Duplicate file deleted: ${key}`);
+				return { action: 'deleted', location: null };
+				
+			case 'move':
+				const duplicateKey = `${duplicatesPrefix}${timestamp}-${key.split('/').pop()}`;
+				console.info(`Moving duplicate file to: ${duplicateKey}`);
+				
+				// Copy to duplicates folder with metadata about why it's a duplicate
+				const copyCommand = new CopyObjectCommand({
+					Bucket: targetBucket,
+					Key: duplicateKey,
+					CopySource: `${sourceBucket}/${encodeURIComponent(key)}`,
+					Metadata: {
+						'original-key': key,
+						'original-bucket': sourceBucket,
+						'duplicate-reason': duplicateCheck.reason,
+						'duplicate-confidence': duplicateCheck.confidence,
+						'existing-file': duplicateCheck.existingFile,
+						'detected-at': new Date().toISOString()
+					},
+					MetadataDirective: 'REPLACE'
+				});
+				
+				await s3Client.send(copyCommand);
+				
+				// Delete original after successful copy
+				await s3Client.send(new DeleteObjectCommand({
+					Bucket: sourceBucket,
+					Key: key
+				}));
+				
+				console.info(`✅ Duplicate file moved to: ${duplicateKey}`);
+				return { action: 'moved', location: duplicateKey };
+				
+			case 'keep':
+			default:
+				console.info(`ℹ️ Keeping duplicate file in place: ${key}`);
+				return { action: 'kept', location: key };
+		}
+	} catch (error) {
+		console.warn(`⚠️ Failed to handle duplicate file: ${error.message}`);
+		// Don't fail the entire operation if duplicate handling fails
+		return { action: 'error', error: error.message };
 	}
 }
 
@@ -282,10 +348,22 @@ exports.handler = async (event) => {
 			if (duplicateCheck.isDuplicate) {
 				console.warn(`Potential duplicate found: ${duplicateCheck.reason}`);
 				console.warn(`Existing file: ${duplicateCheck.existingFile}`);
+				
+				// Handle the duplicate original file
+				const duplicateHandling = await handleDuplicateFile(
+					sourceBucket,
+					key,
+					targetBucket,
+					duplicateCheck,
+					CONFIG.DUPLICATE_ACTION,
+					CONFIG.DUPLICATES_PREFIX
+				);
+				
 				return {
 					status: "skipped",
 					reason: "duplicate_detected",
 					duplicateInfo: duplicateCheck,
+					duplicateHandling,
 					originalKey: key
 				};
 			} else {
