@@ -24,8 +24,10 @@ const CONFIG = {
 	SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false' // default true
 };
 
-exports.handler = async (event) => {
+	exports.handler = async (event) => {
 	const startTime = Date.now();
+	let key = 'unknown'; // Initialize key for error handling scope
+	
 	console.info(
 		"Photo processing Lambda triggered:",
 		JSON.stringify(event, null, 2)
@@ -45,7 +47,7 @@ exports.handler = async (event) => {
 		}
 
 		const sourceBucket = record.s3.bucket.name;
-		const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
+		key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
 		const fileSize = record.s3.object.size || 'unknown';
 
 		// Determine target bucket (same as source or specified processed bucket)
@@ -88,7 +90,14 @@ exports.handler = async (event) => {
 			throw new Error("Failed to download image from S3");
 		}
 
-		const actualFileSize = original.ContentLength || original.Body.length;
+		// Convert stream to buffer for Sharp processing
+		const chunks = [];
+		for await (const chunk of original.Body) {
+			chunks.push(chunk);
+		}
+		const imageBuffer = Buffer.concat(chunks);
+
+		const actualFileSize = original.ContentLength || imageBuffer.length;
 		console.info(`Download completed in ${downloadTime}ms, actual size: ${(actualFileSize / 1024 / 1024).toFixed(2)}MB`);
 		console.info(`Content-Type: ${original.ContentType || 'unknown'}, Last-Modified: ${original.LastModified || 'unknown'}`);
 
@@ -99,7 +108,7 @@ exports.handler = async (event) => {
 
 		try {
 			console.info("Parsing EXIF data");
-			const parser = ExifParser.create(original.Body);
+			const parser = ExifParser.create(imageBuffer);
 			exif = parser.parse();
 
 			// Extract date with multiple fallback options
@@ -141,19 +150,19 @@ exports.handler = async (event) => {
 		const processingStart = Date.now();
 		console.info("Creating image variations");
 		const [large, medium, small, thumb] = await Promise.all([
-			sharp(original.Body)
+			sharp(imageBuffer)
 				.resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
 				.jpeg({ quality: 85 })
 				.toBuffer(),
-			sharp(original.Body)
+			sharp(imageBuffer)
 				.resize(800, 800, { fit: "inside", withoutEnlargement: true })
 				.jpeg({ quality: 80 })
 				.toBuffer(),
-			sharp(original.Body)
+			sharp(imageBuffer)
 				.resize(400, 400, { fit: "inside", withoutEnlargement: true })
 				.jpeg({ quality: 75 })
 				.toBuffer(),
-			sharp(original.Body)
+			sharp(imageBuffer)
 				.resize(100, 100, { fit: "inside", withoutEnlargement: true })
 				.jpeg({ quality: 70 })
 				.toBuffer(),
@@ -164,7 +173,7 @@ exports.handler = async (event) => {
 		console.info(`Generated sizes - Large: ${(large.length/1024).toFixed(1)}KB, Medium: ${(medium.length/1024).toFixed(1)}KB, Small: ${(small.length/1024).toFixed(1)}KB, Thumb: ${(thumb.length/1024).toFixed(1)}KB`);
 
 		// Get original image metadata for the JSON file
-		const imageMetadata = await sharp(original.Body).metadata();
+		const imageMetadata = await sharp(imageBuffer).metadata();
 		console.info(`Original image: ${imageMetadata.width}x${imageMetadata.height} ${imageMetadata.format?.toUpperCase()}, ${imageMetadata.channels} channels, ${imageMetadata.density || 'unknown'} DPI`);
 		if (imageMetadata.space) {
 			console.info(`Color space: ${imageMetadata.space}, hasProfile: ${!!imageMetadata.icc}`);
@@ -176,7 +185,7 @@ exports.handler = async (event) => {
 			newBaseName: baseName,
 			timestamp: shotDate.toISOString(),
 			camera,
-			fileSize: original.ContentLength || original.Body.length,
+			fileSize: original.ContentLength || imageBuffer.length,
 			originalDimensions: {
 				width: imageMetadata.width,
 				height: imageMetadata.height,
@@ -222,7 +231,7 @@ exports.handler = async (event) => {
 			s3Client.send(new PutObjectCommand({
 				Bucket: targetBucket,
 				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}.${ext}`,
-				Body: original.Body,
+				Body: imageBuffer,
 				ContentType: original.ContentType,
 				CacheControl: 'public, max-age=31536000', // 1 year cache
 				Metadata: {
