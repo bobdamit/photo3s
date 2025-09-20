@@ -105,6 +105,83 @@ jobs:
           echo "🔍 Verifying role has required policies..."
           aws iam list-attached-role-policies --role-name $ROLE_NAME --output table
           aws iam list-role-policies --role-name $ROLE_NAME --output table
+          
+          # Update S3 policy for existing role (in case buckets changed)
+          echo "🔄 Updating S3 policy for existing role..."
+          
+          # Generate the same S3 policy as we do for new roles
+          if [ -n "${{ env.ALLOWED_SOURCE_BUCKETS }}" ]; then
+            # Parse comma-separated bucket list
+            IFS=',' read -ra BUCKETS <<< "${{ env.ALLOWED_SOURCE_BUCKETS }}"
+            echo "   Configuring for specific buckets: ${{ env.ALLOWED_SOURCE_BUCKETS }}"
+            BUCKET_RESOURCES=""
+            BUCKET_LIST_RESOURCES=""
+            for bucket in "${BUCKETS[@]}"; do
+              bucket=$(echo "$bucket" | xargs) # trim whitespace
+              # Add object-level resources
+              if [ -z "$BUCKET_RESOURCES" ]; then
+                BUCKET_RESOURCES="\"arn:aws:s3:::${bucket}/*\""
+                BUCKET_LIST_RESOURCES="\"arn:aws:s3:::${bucket}\""
+              else
+                BUCKET_RESOURCES="${BUCKET_RESOURCES},\"arn:aws:s3:::${bucket}/*\""
+                BUCKET_LIST_RESOURCES="${BUCKET_LIST_RESOURCES},\"arn:aws:s3:::${bucket}\""
+              fi
+            done
+            
+            # Add processed bucket if different
+            if [ -n "${{ env.PROCESSED_BUCKET }}" ] && [ "${{ env.PROCESSED_BUCKET }}" != "null" ]; then
+              BUCKET_RESOURCES="${BUCKET_RESOURCES},\"arn:aws:s3:::${{ env.PROCESSED_BUCKET }}/*\""
+              BUCKET_LIST_RESOURCES="${BUCKET_LIST_RESOURCES},\"arn:aws:s3:::${{ env.PROCESSED_BUCKET }}\""
+              echo "   Added processed bucket: ${{ env.PROCESSED_BUCKET }}"
+            fi
+          else
+            echo "   No specific buckets configured - allowing access to any bucket (less secure)"
+            BUCKET_RESOURCES="\"arn:aws:s3:::*/*\""
+            BUCKET_LIST_RESOURCES="\"arn:aws:s3:::*\""
+          fi
+          
+          echo "   Bucket object resources: $BUCKET_RESOURCES"
+          echo "   Bucket list resources: $BUCKET_LIST_RESOURCES"
+          
+          cat > s3-policy-update.json << EOF
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:GetObjectMetadata",
+                "s3:GetObjectAttributes"
+              ],
+              "Resource": [
+                $BUCKET_RESOURCES
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:ListBucket"
+              ],
+              "Resource": [
+                $BUCKET_LIST_RESOURCES
+              ]
+            }
+          ]
+        }
+        EOF
+          
+          echo "📄 Updated S3 policy:"
+          cat s3-policy-update.json
+          
+          echo "🔗 Updating S3 policy on existing role..."
+          aws iam put-role-policy \
+            --role-name $ROLE_NAME \
+            --policy-name S3PhotoProcessingPolicy \
+            --policy-document file://s3-policy-update.json
+          echo "✅ S3 access policy updated"
         else
           echo "🆕 CREATING: Lambda execution role (this is normal for first deployment)"
           echo "📝 This role will have these permissions:"
@@ -155,26 +232,33 @@ jobs:
             IFS=',' read -ra BUCKETS <<< "${{ env.ALLOWED_SOURCE_BUCKETS }}"
             echo "   Configuring for specific buckets: ${{ env.ALLOWED_SOURCE_BUCKETS }}"
             BUCKET_RESOURCES=""
+            BUCKET_LIST_RESOURCES=""
             for bucket in "${BUCKETS[@]}"; do
               bucket=$(echo "$bucket" | xargs) # trim whitespace
+              # Add object-level resources
               if [ -z "$BUCKET_RESOURCES" ]; then
                 BUCKET_RESOURCES="\"arn:aws:s3:::${bucket}/*\""
+                BUCKET_LIST_RESOURCES="\"arn:aws:s3:::${bucket}\""
               else
                 BUCKET_RESOURCES="${BUCKET_RESOURCES},\"arn:aws:s3:::${bucket}/*\""
+                BUCKET_LIST_RESOURCES="${BUCKET_LIST_RESOURCES},\"arn:aws:s3:::${bucket}\""
               fi
             done
             
             # Add processed bucket if different
             if [ -n "${{ env.PROCESSED_BUCKET }}" ] && [ "${{ env.PROCESSED_BUCKET }}" != "null" ]; then
               BUCKET_RESOURCES="${BUCKET_RESOURCES},\"arn:aws:s3:::${{ env.PROCESSED_BUCKET }}/*\""
+              BUCKET_LIST_RESOURCES="${BUCKET_LIST_RESOURCES},\"arn:aws:s3:::${{ env.PROCESSED_BUCKET }}\""
               echo "   Added processed bucket: ${{ env.PROCESSED_BUCKET }}"
             fi
           else
             echo "   No specific buckets configured - allowing access to any bucket (less secure)"
             BUCKET_RESOURCES="\"arn:aws:s3:::*/*\""
+            BUCKET_LIST_RESOURCES="\"arn:aws:s3:::*\""
           fi
           
-          echo "   Bucket resources: $BUCKET_RESOURCES"
+          echo "   Bucket object resources: $BUCKET_RESOURCES"
+          echo "   Bucket list resources: $BUCKET_LIST_RESOURCES"
           
           cat > s3-policy.json << EOF
         {
@@ -192,10 +276,22 @@ jobs:
               "Resource": [
                 $BUCKET_RESOURCES
               ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:ListBucket"
+              ],
+              "Resource": [
+                $BUCKET_LIST_RESOURCES
+              ]
             }
           ]
         }
         EOF
+          
+          echo "📄 Generated S3 policy:"
+          cat s3-policy.json
           
           echo "🔗 Attaching custom S3 policy to role..."
           aws iam put-role-policy \
