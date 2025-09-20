@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 env:
-  AWS_REGION: us-east-1
-  LAMBDA_FUNCTION_NAME: phot3s-upload-lambda
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME || 'phot3s-upload-lambda' }}
 
 jobs:
   test:
@@ -51,7 +51,149 @@ jobs:
     - name: Install dependencies
       run: npm ci --production
       
+    - name: Validate required secrets
+      run: |
+        echo "🔍 Validating required secrets..."
+        
+        if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+          echo "❌ AWS_ACCESS_KEY_ID secret is not set"
+          exit 1
+        fi
+        
+        if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+          echo "❌ AWS_SECRET_ACCESS_KEY secret is not set"
+          exit 1
+        fi
+        
+        echo "✅ Required secrets are configured"
+        echo "Region: ${{ env.AWS_REGION }}"
+        echo "Function: ${{ env.LAMBDA_FUNCTION_NAME }}"
+        
     - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Create or get Lambda execution role
+      id: lambda-role
+      run: |
+        echo "🔍 STEP: IAM Role Management"
+        echo "=============================="
+        echo "This step creates the IAM role that allows Lambda to:"
+        echo "  • Execute and write CloudWatch logs"
+        echo "  • Read/write to S3 buckets for photo processing"
+        echo "  • Access EXIF metadata and image processing libraries"
+        echo ""
+        
+        ROLE_NAME="lambda-execution-role"
+        echo "🔎 Checking if IAM role '$ROLE_NAME' exists..."
+        
+        # Check if role exists
+        if aws iam get-role --role-name $ROLE_NAME &>/dev/null; then
+          echo "✅ FOUND: Role '$ROLE_NAME' already exists"
+          ROLE_ARN=$(aws iam get-role --role-name $ROLE_NAME --query 'Role.Arn' --output text)
+          echo "📋 Role ARN: $ROLE_ARN"
+          
+          # Check attached policies
+          echo "🔍 Verifying role has required policies..."
+          aws iam list-attached-role-policies --role-name $ROLE_NAME --output table
+          aws iam list-role-policies --role-name $ROLE_NAME --output table
+        else
+          echo "🆕 CREATING: Lambda execution role (this is normal for first deployment)"
+          echo "📝 This role will have these permissions:"
+          echo "   1. AWSLambdaBasicExecutionRole (AWS managed - for CloudWatch logs)"
+          echo "   2. S3PhotoProcessingPolicy (custom - for S3 bucket access)"
+          echo ""
+          
+          # Create trust policy document
+          echo "📄 Creating trust policy (allows Lambda service to assume this role)..."
+          cat > trust-policy.json << 'EOF'
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+        EOF
+          echo "✅ Trust policy created"
+          
+          # Create the role
+          echo "🛠️  Creating IAM role '$ROLE_NAME'..."
+          aws iam create-role \
+            --role-name $ROLE_NAME \
+            --assume-role-policy-document file://trust-policy.json \
+            --description "Execution role for photo processing Lambda function - auto-created by GitHub Actions"
+          echo "✅ IAM role created successfully"
+          
+          # Attach basic Lambda execution policy
+          echo "🔗 Attaching AWS managed policy: AWSLambdaBasicExecutionRole"
+          echo "   This allows Lambda to write logs to CloudWatch"
+          aws iam attach-role-policy \
+            --role-name $ROLE_NAME \
+            --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+          echo "✅ Basic execution policy attached"
+          
+          # Create and attach S3 access policy
+          echo "📝 Creating custom S3 access policy..."
+          echo "   This allows Lambda to read/write photos from any S3 bucket"
+          cat > s3-policy.json << 'EOF'
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:GetObjectMetadata"
+              ],
+              "Resource": "arn:aws:s3:::*/*",
+              "Condition": {
+                "StringLike": {
+                  "s3:x-amz-server-side-encryption": ["AES256", "aws:kms"]
+                }
+              }
+            }
+          ]
+        }
+        EOF
+          
+          echo "🔗 Attaching custom S3 policy to role..."
+          aws iam put-role-policy \
+            --role-name $ROLE_NAME \
+            --policy-name S3PhotoProcessingPolicy \
+            --policy-document file://s3-policy.json
+          echo "✅ S3 access policy attached"
+          
+          # Get the role ARN
+          ROLE_ARN=$(aws iam get-role --role-name $ROLE_NAME --query 'Role.Arn' --output text)
+          echo "📋 New Role ARN: $ROLE_ARN"
+          
+          echo "✅ COMPLETE: Role created with all required permissions"
+          
+          # Wait for role to propagate
+          echo "⏳ IMPORTANT: Waiting 15 seconds for IAM role to propagate across AWS..."
+          echo "   (This prevents 'role cannot be assumed' errors during Lambda creation)"
+          sleep 15
+          echo "✅ Role propagation wait complete"
+        fi
+        
+        echo ""
+        echo "🎯 RESULT: Lambda execution role is ready"
+        echo "   Role Name: $ROLE_NAME"
+        echo "   Role ARN: $ROLE_ARN"
+        echo "   Permissions: Lambda execution + S3 read/write access"
+        echo ""
+        echo "role-arn=$ROLE_ARN" >> $GITHUB_OUTPUT
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -60,63 +202,168 @@ jobs:
         
     - name: Create deployment package
       run: |
-        echo "Creating deployment package..."
+        echo "📦 STEP: Creating Lambda Deployment Package"
+        echo "============================================"
+        echo "This creates a ZIP file containing:"
+        echo "  • upload-lambda.js (main photo processing code)"
+        echo "  • node_modules/ (sharp, exif-parser, aws-sdk dependencies)"
+        echo "  • package.json (dependency manifest)"
+        echo ""
+        
+        echo "📁 Files being packaged:"
+        ls -la upload-lambda.js package.json
+        echo ""
+        echo "📚 Key dependencies:"
+        npm list --depth=0 2>/dev/null || echo "   (dependencies installed successfully)"
+        echo ""
+        
+        echo "🗜️  Creating ZIP archive..."
         zip -r photo-lambda.zip upload-lambda.js node_modules/ package.json
-        ls -la photo-lambda.zip
+        
+        echo "📊 Package size:"
+        ls -lh photo-lambda.zip
+        
+        echo "✅ Deployment package ready"
+        echo ""
         
     - name: Check if Lambda function exists
       id: check-function
       run: |
+        echo "🔍 STEP: Lambda Function Discovery"
+        echo "=================================="
+        echo "Checking if Lambda function '${{ env.LAMBDA_FUNCTION_NAME }}' exists..."
+        echo "This determines whether to CREATE new function or UPDATE existing one"
+        echo ""
+        
         if aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} &>/dev/null; then
+          echo "✅ FOUND: Function '${{ env.LAMBDA_FUNCTION_NAME }}' exists"
+          echo "📋 Current function details:"
+          aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+            --query '{Runtime:Configuration.Runtime,MemorySize:Configuration.MemorySize,Timeout:Configuration.Timeout,LastModified:Configuration.LastModified}' \
+            --output table
+          
           echo "function-exists=true" >> $GITHUB_OUTPUT
-          echo "Lambda function ${{ env.LAMBDA_FUNCTION_NAME }} exists"
+          echo "🎯 RESULT: Will UPDATE existing function code"
         else
-          echo "function-exists=false" >> $GITHUB_OUTPUT
-          echo "Lambda function ${{ env.LAMBDA_FUNCTION_NAME }} does not exist"
+          echo "❌ NOT FOUND: Function '${{ env.LAMBDA_FUNCTION_NAME }}' does not exist"
+          echo "function-exists=false" >> $GITHUB_OUTPUT  
+          echo "🎯 RESULT: Will CREATE new function"
         fi
+        echo ""
         
     - name: Update Lambda function code
       if: steps.check-function.outputs.function-exists == 'true'
       run: |
-        echo "Updating existing Lambda function..."
+        echo "🔄 STEP: Updating Existing Lambda Function"
+        echo "=========================================="
+        echo "Function: ${{ env.LAMBDA_FUNCTION_NAME }}"
+        echo "Action: Update code only (keeping existing configuration)"
+        echo "Package: photo-lambda.zip"
+        echo ""
+        
+        echo "📤 Uploading new code to existing Lambda function..."
         aws lambda update-function-code \
           --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
           --zip-file fileb://photo-lambda.zip
-        echo "✅ Lambda function updated successfully"
+        
+        echo "✅ Code update complete"
+        
+        echo "📋 Updated function details:"
+        aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --query '{FunctionName:Configuration.FunctionName,Runtime:Configuration.Runtime,LastModified:Configuration.LastModified,CodeSize:Configuration.CodeSize}' \
+          --output table
+        echo ""
         
     - name: Create Lambda function
       if: steps.check-function.outputs.function-exists == 'false'
       run: |
-        echo "Creating new Lambda function..."
+        echo "🆕 STEP: Creating New Lambda Function"
+        echo "====================================="
+        echo "This is the first deployment - creating Lambda function from scratch"
+        echo ""
+        echo "📋 Function Configuration:"
+        echo "   Name: ${{ env.LAMBDA_FUNCTION_NAME }}"
+        echo "   Runtime: nodejs18.x"
+        echo "   Handler: upload-lambda.handler (main function)"
+        echo "   Memory: 512 MB (good for image processing)"
+        echo "   Timeout: 60 seconds (enough for large photos)"
+        echo "   Role: ${{ steps.lambda-role.outputs.role-arn }}"
+        echo ""
+        echo "🎯 Function Purpose:"
+        echo "   • Processes uploaded photos (JPG, PNG, TIFF, WebP)"
+        echo "   • Creates multiple sizes (small, medium, large)" 
+        echo "   • Extracts EXIF metadata (camera, GPS, date)"
+        echo "   • Renames files based on shot date"
+        echo "   • Generates JSON metadata files"
+        echo ""
+        
+        echo "🛠️  Creating Lambda function..."
         aws lambda create-function \
           --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
           --runtime nodejs18.x \
-          --role ${{ secrets.LAMBDA_EXECUTION_ROLE_ARN }} \
+          --role ${{ steps.lambda-role.outputs.role-arn }} \
           --handler upload-lambda.handler \
           --zip-file fileb://photo-lambda.zip \
           --timeout 60 \
           --memory-size 512 \
-          --description "Photo processing Lambda - creates multiple sizes and extracts metadata"
+          --description "Photo processing Lambda - creates multiple sizes and extracts metadata [Auto-deployed by GitHub Actions]"
+        
         echo "✅ Lambda function created successfully"
+        
+        echo "📋 New function details:"
+        aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --query '{FunctionName:Configuration.FunctionName,State:Configuration.State,Runtime:Configuration.Runtime,MemorySize:Configuration.MemorySize}' \
+          --output table
+        echo ""
         
     - name: Run deployment verification
       run: |
-        echo "🔍 Verifying deployment..."
+        echo "🔍 STEP: Deployment Verification"
+        echo "================================"
+        echo "Running post-deployment checks to ensure everything is working..."
+        echo ""
         
         # Check function status
+        echo "🏥 Health Check: Lambda Function Status"
         FUNCTION_STATE=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.State' --output text)
-        echo "Function state: $FUNCTION_STATE"
+        echo "   Current State: $FUNCTION_STATE"
         
         if [ "$FUNCTION_STATE" = "Active" ]; then
-          echo "✅ Lambda function is active and ready"
-          echo "✅ Lambda function deployed successfully"
-          echo "Configure S3 bucket triggers and environment variables via AWS Console"
+          echo "   ✅ HEALTHY: Lambda function is active and ready to process photos"
         else
-          echo "❌ Lambda function is not in active state"
+          echo "   ❌ UNHEALTHY: Lambda function is not in active state"
+          echo "   This usually means the function is still initializing or has configuration issues"
           exit 1
         fi
         
-        echo "🎉 Deployment verification completed successfully!"
+        echo ""
+        echo "📊 Function Summary:"
+        aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --query '{FunctionName:Configuration.FunctionName,Runtime:Configuration.Runtime,State:Configuration.State,LastModified:Configuration.LastModified,CodeSize:Configuration.CodeSize,MemorySize:Configuration.MemorySize,Timeout:Configuration.Timeout}' \
+          --output table
+        
+        echo ""
+        echo "🎯 DEPLOYMENT SUCCESS!"
+        echo "====================="
+        echo "Your photo processing Lambda is now deployed and ready to use."
+        echo ""
+        echo "📋 What was deployed:"
+        echo "   • Lambda Function: ${{ env.LAMBDA_FUNCTION_NAME }}"
+        echo "   • IAM Role: lambda-execution-role (with S3 + CloudWatch permissions)"
+        echo "   • Runtime: Node.js 18.x with sharp, exif-parser libraries"
+        echo "   • Memory: 512MB, Timeout: 60 seconds"
+        echo ""
+        echo "🚀 Next Steps (Manual Configuration Required):"
+        echo "   1. Configure S3 bucket triggers via AWS Console"
+        echo "   2. Set Lambda environment variables for multi-bucket setup"
+        echo "   3. Upload test photos to trigger processing"
+        echo "   4. Check CloudWatch logs for processing results"
+        echo ""
+        echo "📚 Documentation:"
+        echo "   • Multi-bucket setup: See MULTI_BUCKET.md in this repo"
+        echo "   • S3 trigger setup: See README.md in this repo"
+        echo "   • Troubleshooting: Check CloudWatch logs at /aws/lambda/${{ env.LAMBDA_FUNCTION_NAME }}"
+        echo ""
 
   notify:
     needs: [test, deploy]

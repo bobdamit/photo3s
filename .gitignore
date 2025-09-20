@@ -20,6 +20,8 @@ build/
 # AWS
 .aws/
 aws-exports.js
+*-policy.json
+
 
 # IDE files
 .vscode/

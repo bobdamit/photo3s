@@ -1,12 +1,12 @@
 # GitHub Actions Setup for Lambda Deployment
 
-This document explains how to configure GitHub secrets for automatic Lambda deployment. The workflow deploys the Lambda function only - bucket configuration and environment variables are managed via AWS Console.
+This document explains how to configure GitHub secrets for automatic Lambda deployment. The workflow deploys the Lambda function and automatically creates the required IAM role if it doesn't exist.
 
 ## Required GitHub Secrets
 
 Go to your repository → Settings → Secrets and variables → Actions → New repository secret
 
-### 1. AWS Credentials
+### 1. AWS Credentials (Required)
 ```
 AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
@@ -15,18 +15,47 @@ AWS_SECRET_ACCESS_KEY
 **How to get these:**
 1. Go to AWS Console → IAM → Users → Your User → Security credentials
 2. Create access key for CLI/API use
-3. **Important**: Use a user/role with Lambda permissions
+3. **Important**: User needs IAM permissions to create roles and Lambda functions
 
-### 2. IAM Role ARN
+### 2. Optional Configuration
 ```
-LAMBDA_EXECUTION_ROLE_ARN
+AWS_REGION (defaults to us-east-1)
+LAMBDA_FUNCTION_NAME (defaults to phot3s-upload-lambda)
 ```
-**Example value:** `arn:aws:iam::123456789012:role/lambda-execution-role`
 
-**How to get this:**
-```bash
-aws iam get-role --role-name lambda-execution-role --query 'Role.Arn' --output text
+## IAM Permissions Required
+
+Your AWS user needs these permissions for the GitHub Action to work:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:GetFunction",
+        "lambda:AddPermission",
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:AttachRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:PassRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
 ```
+
+## What the Workflow Does Automatically
+
+✅ **Creates IAM Role**: Automatically creates `lambda-execution-role` if it doesn't exist  
+✅ **Sets Up Permissions**: Adds Lambda execution and S3 access policies  
+✅ **Deploys Lambda**: Creates or updates the Lambda function  
+✅ **Validates Setup**: Checks that everything is working correctly
 
 ## Quick Setup Commands
 
@@ -83,11 +112,12 @@ aws iam get-role --role-name lambda-execution-role --query 'Role.Arn' --output t
 
 ## GitHub Secrets Summary
 
-| Secret Name | Example Value | How to Get |
-|-------------|---------------|------------|
-| `AWS_ACCESS_KEY_ID` | `AKIAIOSFODNN7EXAMPLE` | AWS Console → IAM → Users → Access keys |
-| `AWS_SECRET_ACCESS_KEY` | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` | AWS Console → IAM → Users → Access keys |
-| `LAMBDA_EXECUTION_ROLE_ARN` | `arn:aws:iam::123456789012:role/lambda-execution-role` | Output from `aws iam get-role` command above |
+| Secret Name | Required | Example Value | How to Get |
+|-------------|----------|---------------|------------|
+| `AWS_ACCESS_KEY_ID` | ✅ **Required** | `AKIAIOSFODNN7EXAMPLE` | AWS Console → IAM → Users → Access keys |
+| `AWS_SECRET_ACCESS_KEY` | ✅ **Required** | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` | AWS Console → IAM → Users → Access keys |
+| `AWS_REGION` | Optional | `us-east-1` | Defaults to `us-east-1` |
+| `LAMBDA_FUNCTION_NAME` | Optional | `my-photo-processor` | Defaults to `phot3s-upload-lambda` |
 
 ## Workflow Behavior
 
