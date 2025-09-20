@@ -143,7 +143,7 @@ jobs:
           
           # Create and attach S3 access policy
           echo "📝 Creating custom S3 access policy..."
-          echo "   This allows Lambda to read/write photos from any S3 bucket"
+          echo "   This allows Lambda to read/write photos from S3 bucket: rs-photos-mics"
           cat > s3-policy.json << 'EOF'
         {
           "Version": "2012-10-17",
@@ -154,14 +154,12 @@ jobs:
                 "s3:GetObject",
                 "s3:PutObject",
                 "s3:DeleteObject",
-                "s3:GetObjectMetadata"
+                "s3:GetObjectMetadata",
+                "s3:GetObjectAttributes"
               ],
-              "Resource": "arn:aws:s3:::*/*",
-              "Condition": {
-                "StringLike": {
-                  "s3:x-amz-server-side-encryption": ["AES256", "aws:kms"]
-                }
-              }
+              "Resource": [
+                "arn:aws:s3:::rs-photos-mics/*"
+              ]
             }
           ]
         }
