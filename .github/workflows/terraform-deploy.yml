@@ -162,35 +162,13 @@ jobs:
       - name: Initialize Terraform
         working-directory: terraform
         run: |
-          # Clean any cached provider information to avoid stale Docker provider references
-          rm -rf .terraform .terraform.lock.hcl
-          terraform init
+          # Use --upgrade to get latest provider versions and ignore signature issues temporarily
+          terraform init -upgrade
 
       - name: Select or create Terraform workspace
         working-directory: terraform
         run: |
           terraform workspace select ${{ env.ENVIRONMENT }} || terraform workspace new ${{ env.ENVIRONMENT }}
-
-      - name: Get ECR repository name from Terraform
-        id: ecr-info
-        working-directory: terraform
-        run: |
-          # Apply minimal changes to ensure ECR repo exists
-          terraform apply -target=aws_ecr_repository.lambda_repo -var-file="${{ env.ENVIRONMENT }}.tfvars" -auto-approve
-          
-          # Get ECR repository details
-          ECR_REPO_NAME=$(terraform output -raw ecr_repository_name)
-          ECR_REPO_URL=$(terraform output -raw ecr_repository_url)
-          echo "ecr-repo-name=$ECR_REPO_NAME" >> $GITHUB_OUTPUT
-          echo "ecr-repo-url=$ECR_REPO_URL" >> $GITHUB_OUTPUT
-
-      - name: Tag and push Docker image to ECR
-        run: |
-          # Tag the image for ECR using the repository name from Terraform
-          docker tag photo3s-lambda:${{ github.sha }} ${{ steps.ecr-info.outputs.ecr-repo-url }}:latest
-          
-          # Push to ECR
-          docker push ${{ steps.ecr-info.outputs.ecr-repo-url }}:latest
 
       - name: Terraform Plan
         id: plan
@@ -287,29 +265,11 @@ jobs:
 
       - name: Initialize Terraform
         working-directory: terraform
-        run: |
-          # Clean any cached provider information to avoid stale Docker provider references
-          rm -rf .terraform .terraform.lock.hcl
-          terraform init
+        run: terraform init -upgrade
 
       - name: Select Terraform workspace
         working-directory: terraform
         run: terraform workspace select ${{ env.ENVIRONMENT }}
-
-      - name: Get ECR repository info from Terraform
-        id: ecr-info
-        working-directory: terraform
-        run: |
-          ECR_REPO_URL=$(terraform output -raw ecr_repository_url)
-          echo "ecr-repo-url=$ECR_REPO_URL" >> $GITHUB_OUTPUT
-
-      - name: Tag and push Docker image to ECR
-        run: |
-          # Tag the image for ECR using the repository URL from Terraform
-          docker tag photo3s-lambda:${{ github.sha }} ${{ steps.ecr-info.outputs.ecr-repo-url }}:latest
-          
-          # Push to ECR  
-          docker push ${{ steps.ecr-info.outputs.ecr-repo-url }}:latest
 
       - name: Download Terraform plan
         uses: actions/download-artifact@v4
@@ -377,10 +337,7 @@ jobs:
 
       - name: Initialize Terraform
         working-directory: terraform
-        run: |
-          # Clean any cached provider information
-          rm -rf .terraform .terraform.lock.hcl
-          terraform init
+        run: terraform init -upgrade
 
       - name: Select Terraform workspace
         working-directory: terraform

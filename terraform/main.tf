@@ -176,6 +176,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
 # ECR Repository for Lambda Container
 #===============================================================================
 
+#===============================================================================
+# ECR Repository for Lambda Container
+#===============================================================================
+
 resource "aws_ecr_repository" "lambda_repo" {
   name                 = "${local.name_prefix}-lambda"
   image_tag_mutability = "MUTABLE"
@@ -188,6 +192,68 @@ resource "aws_ecr_repository" "lambda_repo" {
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-lambda-repo"
   })
+}
+
+resource "aws_ecr_lifecycle_policy" "lambda_repo" {
+  repository = aws_ecr_repository.lambda_repo.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 5 images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["v"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 5
+        }
+        action = {
+          type = "expire"
+        }
+      },
+      {
+        rulePriority = 2
+        description  = "Delete untagged images"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
+#===============================================================================
+# Docker Image Build and Push
+#===============================================================================
+
+resource "docker_image" "lambda_image" {
+  name = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+  
+  build {
+    context    = "${path.module}/.."
+    dockerfile = "Dockerfile"
+    
+    tag = ["${aws_ecr_repository.lambda_repo.repository_url}:latest"]
+  }
+  
+  triggers = {
+    lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
+    package_hash     = filemd5("${path.module}/../package.json")
+    dockerfile_hash  = filemd5("${path.module}/../Dockerfile")
+  }
+}
+
+resource "docker_registry_image" "lambda_image" {
+  name = docker_image.lambda_image.name
+  
+  triggers = docker_image.lambda_image.triggers
 }
 
 resource "aws_ecr_lifecycle_policy" "lambda_repo" {
@@ -332,7 +398,7 @@ resource "aws_lambda_function" "photo_processor" {
   
   # Container image configuration
   package_type = "Image"
-  image_uri    = local.lambda_image_uri
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}@${docker_registry_image.lambda_image.sha256_digest}"
   
   # Function configuration
   memory_size = var.lambda_memory
