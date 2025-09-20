@@ -15,7 +15,7 @@ env:
   ALLOWED_SOURCE_BUCKETS: ${{ vars.ALLOWED_SOURCE_BUCKETS }}
   PROCESSED_BUCKET: ${{ vars.PROCESSED_BUCKET }}
   PROCESSED_PREFIX: ${{ vars.PROCESSED_PREFIX || 'processed/' }}
-  DELETE_ORIGINAL: ${{ vars.DELETE_ORIGINAL || 'false' }}
+  DELETE_ORIGINAL: ${{ vars.DELETE_ORIGINAL || 'true' }}
 
 jobs:
   test:
