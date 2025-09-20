@@ -385,15 +385,15 @@ jobs:
         echo "🔄 Updating Lambda environment variables..."
         echo "Environment JSON: $ENV_VARS"
         
-        # Write JSON to a temporary file to avoid shell escaping issues
-        echo "$ENV_VARS" > /tmp/env_vars.json
-        echo "Temp file contents:"
-        cat /tmp/env_vars.json
+        # Create the full CLI input JSON
+        CLI_JSON="{\"FunctionName\":\"${{ env.LAMBDA_FUNCTION_NAME }}\",\"Environment\":{\"Variables\":$ENV_VARS}}"
+        echo "CLI JSON: $CLI_JSON"
         
-        # Use AWS CLI with the JSON file
+        # Write to temp file and use cli-input-json
+        echo "$CLI_JSON" > /tmp/lambda-update.json
+        
         aws lambda update-function-configuration \
-          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-          --environment Variables=file:///tmp/env_vars.json
+          --cli-input-json file:///tmp/lambda-update.json
         
         echo "✅ Environment variables configured successfully"
         echo ""
