@@ -106,6 +106,55 @@ delete_if_exists "ECR Repository" "$ECR_REPO_NAME" \
 echo ""
 echo "🔥 Deleting IAM Role and policies..."
 
+# Check if role exists first
+if aws iam get-role --role-name "$IAM_ROLE_NAME" >/dev/null 2>&1; then
+    echo "🔍 Found IAM role: $IAM_ROLE_NAME"
+    
+    # Simple approach: get policies and detach them one by one
+    echo "   Detaching managed policies..."
+    aws iam list-attached-role-policies --role-name "$IAM_ROLE_NAME" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null | while read -r policy_arn; do
+        if [ ! -z "$policy_arn" ] && [ "$policy_arn" != "None" ]; then
+            echo "     Detaching: $policy_arn"
+            aws iam detach-role-policy --role-name "$IAM_ROLE_NAME" --policy-arn "$policy_arn" 2>/dev/null
+        fi
+    done
+    
+    echo "   Deleting inline policies..."
+    aws iam list-role-policies --role-name "$IAM_ROLE_NAME" --query 'PolicyNames[]' --output text 2>/dev/null | while read -r policy_name; do
+        if [ ! -z "$policy_name" ] && [ "$policy_name" != "None" ]; then
+            echo "     Deleting: $policy_name"
+            aws iam delete-role-policy --role-name "$IAM_ROLE_NAME" --policy-name "$policy_name" 2>/dev/null
+        fi
+    done
+    
+    # Wait and retry deletion
+    echo "   Waiting for policy detachments to propagate..."
+    sleep 5
+    
+    # Try to delete role, with retries
+    echo "   Attempting to delete role..."
+    for attempt in 1 2 3; do
+        if aws iam delete-role --role-name "$IAM_ROLE_NAME" 2>/dev/null; then
+            echo "✅ Deleted IAM role: $IAM_ROLE_NAME"
+            break
+        else
+            echo "   Attempt $attempt failed, waiting..."
+            sleep 3
+        fi
+    done
+    
+    # Final check if role still exists
+    if aws iam get-role --role-name "$IAM_ROLE_NAME" >/dev/null 2>&1; then
+        echo "❌ IAM role $IAM_ROLE_NAME still exists - manual cleanup required"
+        echo "   Run these commands manually:"
+        echo "   aws iam list-attached-role-policies --role-name $IAM_ROLE_NAME"
+        echo "   aws iam list-role-policies --role-name $IAM_ROLE_NAME"
+        echo "   # Then detach/delete policies and delete role"
+    fi
+else
+    echo "ℹ️  IAM role $IAM_ROLE_NAME not found"
+fi
+
 # 5. Delete IAM Role and attached policies
 echo ""
 echo "� Deleting IAM Role and policies..."
