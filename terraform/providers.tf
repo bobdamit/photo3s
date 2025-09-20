@@ -12,11 +12,7 @@ provider "aws" {
 
 # Docker provider for building Lambda container images
 provider "docker" {
-  registry_auth {
-    address  = data.aws_ecr_authorization_token.token.proxy_endpoint
-    username = data.aws_ecr_authorization_token.token.user_name
-    password = data.aws_ecr_authorization_token.token.password
-  }
+  # ECR authentication handled at resource level or via AWS CLI
 }
 
 # Data sources

@@ -83,6 +83,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "ingress_buckets" {
     id     = "cleanup_incomplete_uploads"
     status = "Enabled"
 
+    filter {}
+
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
@@ -150,6 +152,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
   rule {
     id     = "cleanup_incomplete_uploads"
     status = "Enabled"
+
+    filter {}
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
@@ -254,6 +258,13 @@ resource "docker_registry_image" "lambda_image" {
   name = docker_image.lambda_image.name
   
   triggers = docker_image.lambda_image.triggers
+  
+  # ECR authentication for official docker provider
+  registry_auth {
+    address  = data.aws_ecr_authorization_token.token.proxy_endpoint
+    username = data.aws_ecr_authorization_token.token.user_name
+    password = data.aws_ecr_authorization_token.token.password
+  }
 }
 
 #===============================================================================
