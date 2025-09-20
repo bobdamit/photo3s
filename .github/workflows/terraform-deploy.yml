@@ -213,9 +213,10 @@ jobs:
           # Updated to use latest Terraform version - may handle provider signatures better
           terraform init -upgrade
 
-      - name: Select Terraform workspace
+      - name: Select or create Terraform workspace
         working-directory: terraform
-        run: terraform workspace select ${{ env.ENVIRONMENT }}
+        run: |
+          terraform workspace select ${{ env.ENVIRONMENT }} || terraform workspace new ${{ env.ENVIRONMENT }}
 
       - name: Download Terraform plan
         uses: actions/download-artifact@v4
