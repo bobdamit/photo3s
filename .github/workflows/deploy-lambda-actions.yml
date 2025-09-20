@@ -167,15 +167,21 @@ jobs:
     - name: Test function invocation
       run: |
         echo "🧪 Testing Lambda function with empty event..."
+        # Create a proper empty S3 event payload
+        echo '{"Records":[]}' > test-event.json
+        
         aws lambda invoke \
           --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-          --payload '{"Records":[]}' \
+          --payload file://test-event.json \
           --cli-read-timeout 30 \
           response.json
         
         echo "Function response:"
         cat response.json
         echo ""
+        
+        # Clean up test files
+        rm -f test-event.json response.json
 
   notify:
     needs: [test, deploy]
