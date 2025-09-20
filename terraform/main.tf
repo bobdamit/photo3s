@@ -90,21 +90,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "ingress_buckets" {
   }
   
   rule {
-    id     = "transition_duplicates"
+    id     = "delete_all_files"
     status = "Enabled"
     
-    filter {
-      prefix = "duplicates/"
-    }
-
-    transition {
-      days          = 30
-      storage_class = "STANDARD_IA"
+    # Delete all files after retention period - ingress buckets are ephemeral
+    filter {}
+    
+    expiration {
+      days = var.ingress_retention_days
     }
     
-    transition {
-      days          = 90
-      storage_class = "GLACIER"
+    noncurrent_version_expiration {
+      noncurrent_days = var.ingress_retention_days
     }
   }
 }

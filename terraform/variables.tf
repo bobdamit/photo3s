@@ -81,9 +81,20 @@ variable "lambda_timeout" {
 }
 
 variable "delete_original" {
-  description = "Whether to delete original files after processing"
+  description = "Whether Lambda should delete original files after processing (deprecated - use lifecycle policies instead)"
   type        = bool
-  default     = true
+  default     = false  # S3 lifecycle policies handle cleanup automatically
+}
+
+variable "ingress_retention_days" {
+  description = "Number of days to retain ALL files in ephemeral ingress buckets before automatic deletion"
+  type        = number
+  default     = 3
+  
+  validation {
+    condition     = var.ingress_retention_days >= 1 && var.ingress_retention_days <= 30
+    error_message = "Ingress retention days must be between 1 and 30."
+  }
 }
 
 variable "check_duplicates" {
