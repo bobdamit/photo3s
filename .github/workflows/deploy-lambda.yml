@@ -9,6 +9,11 @@ on:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
   LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME || 'phot3s-upload-lambda' }}
+  # S3 bucket configuration - set these in GitHub secrets for multi-bucket support
+  ALLOWED_SOURCE_BUCKETS: ${{ secrets.ALLOWED_SOURCE_BUCKETS || '' }}
+  PROCESSED_BUCKET: ${{ secrets.PROCESSED_BUCKET || '' }}
+  PROCESSED_PREFIX: ${{ secrets.PROCESSED_PREFIX || 'processed/' }}
+  DELETE_ORIGINAL: ${{ secrets.DELETE_ORIGINAL || 'false' }}
 
 jobs:
   test:
@@ -142,9 +147,36 @@ jobs:
           echo "✅ Basic execution policy attached"
           
           # Create and attach S3 access policy
-          echo "📝 Creating custom S3 access policy..."
-          echo "   This allows Lambda to read/write photos from S3 bucket: rs-photos-mics"
-          cat > s3-policy.json << 'EOF'
+          echo "📝 Creating dynamic S3 access policy..."
+          
+          # Determine bucket resources from environment variables
+          if [ -n "${{ env.ALLOWED_SOURCE_BUCKETS }}" ]; then
+            # Parse comma-separated bucket list
+            IFS=',' read -ra BUCKETS <<< "${{ env.ALLOWED_SOURCE_BUCKETS }}"
+            echo "   Configuring for specific buckets: ${{ env.ALLOWED_SOURCE_BUCKETS }}"
+            BUCKET_RESOURCES=""
+            for bucket in "${BUCKETS[@]}"; do
+              bucket=$(echo "$bucket" | xargs) # trim whitespace
+              if [ -z "$BUCKET_RESOURCES" ]; then
+                BUCKET_RESOURCES="\"arn:aws:s3:::${bucket}/*\""
+              else
+                BUCKET_RESOURCES="${BUCKET_RESOURCES},\"arn:aws:s3:::${bucket}/*\""
+              fi
+            done
+            
+            # Add processed bucket if different
+            if [ -n "${{ env.PROCESSED_BUCKET }}" ] && [ "${{ env.PROCESSED_BUCKET }}" != "null" ]; then
+              BUCKET_RESOURCES="${BUCKET_RESOURCES},\"arn:aws:s3:::${{ env.PROCESSED_BUCKET }}/*\""
+              echo "   Added processed bucket: ${{ env.PROCESSED_BUCKET }}"
+            fi
+          else
+            echo "   No specific buckets configured - allowing access to any bucket (less secure)"
+            BUCKET_RESOURCES="\"arn:aws:s3:::*/*\""
+          fi
+          
+          echo "   Bucket resources: $BUCKET_RESOURCES"
+          
+          cat > s3-policy.json << EOF
         {
           "Version": "2012-10-17",
           "Statement": [
@@ -158,7 +190,7 @@ jobs:
                 "s3:GetObjectAttributes"
               ],
               "Resource": [
-                "arn:aws:s3:::rs-photos-mics/*"
+                $BUCKET_RESOURCES
               ]
             }
           ]
@@ -307,6 +339,62 @@ jobs:
         aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
           --query '{FunctionName:Configuration.FunctionName,State:Configuration.State,Runtime:Configuration.Runtime,MemorySize:Configuration.MemorySize}' \
           --output table
+        echo ""
+        
+    - name: Configure Lambda environment variables
+      run: |
+        echo "🔧 STEP: Configuring Lambda Environment Variables"
+        echo "================================================="
+        echo "Setting up multi-bucket configuration for flexible deployment..."
+        echo ""
+        
+        # Build environment variables JSON
+        ENV_VARS="{"
+        
+        # Add bucket configuration
+        if [ -n "${{ env.ALLOWED_SOURCE_BUCKETS }}" ]; then
+          echo "✅ ALLOWED_SOURCE_BUCKETS: ${{ env.ALLOWED_SOURCE_BUCKETS }}"
+          ENV_VARS="${ENV_VARS}\"ALLOWED_SOURCE_BUCKETS\":\"${{ env.ALLOWED_SOURCE_BUCKETS }}\""
+        else
+          echo "ℹ️  ALLOWED_SOURCE_BUCKETS: Not set (allows any bucket)"
+        fi
+        
+        if [ -n "${{ env.PROCESSED_BUCKET }}" ] && [ "${{ env.PROCESSED_BUCKET }}" != "null" ]; then
+          if [ "$ENV_VARS" != "{" ]; then ENV_VARS="${ENV_VARS},"; fi
+          ENV_VARS="${ENV_VARS}\"PROCESSED_BUCKET\":\"${{ env.PROCESSED_BUCKET }}\""
+          echo "✅ PROCESSED_BUCKET: ${{ env.PROCESSED_BUCKET }}"
+        else
+          echo "ℹ️  PROCESSED_BUCKET: Not set (uses same bucket as source)"
+        fi
+        
+        if [ "$ENV_VARS" != "{" ]; then ENV_VARS="${ENV_VARS},"; fi
+        ENV_VARS="${ENV_VARS}\"PROCESSED_PREFIX\":\"${{ env.PROCESSED_PREFIX }}\""
+        echo "✅ PROCESSED_PREFIX: ${{ env.PROCESSED_PREFIX }}"
+        
+        if [ "$ENV_VARS" != "{" ]; then ENV_VARS="${ENV_VARS},"; fi
+        ENV_VARS="${ENV_VARS}\"DELETE_ORIGINAL\":\"${{ env.DELETE_ORIGINAL }}\""
+        echo "✅ DELETE_ORIGINAL: ${{ env.DELETE_ORIGINAL }}"
+        
+        if [ "$ENV_VARS" != "{" ]; then ENV_VARS="${ENV_VARS},"; fi
+        ENV_VARS="${ENV_VARS}\"SKIP_PROCESSED_FOLDER\":\"true\""
+        echo "✅ SKIP_PROCESSED_FOLDER: true"
+        
+        ENV_VARS="${ENV_VARS}}"
+        
+        echo ""
+        echo "🔄 Updating Lambda environment variables..."
+        aws lambda update-function-configuration \
+          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --environment Variables="$ENV_VARS"
+        
+        echo "✅ Environment variables configured successfully"
+        echo ""
+        echo "📋 Current Lambda environment:"
+        aws lambda get-function-configuration \
+          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --query 'Environment.Variables' \
+          --output table
+          
         echo ""
         
     - name: Run deployment verification
