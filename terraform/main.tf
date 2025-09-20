@@ -79,17 +79,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "ingress_buckets" {
   bucket = aws_s3_bucket.ingress_buckets[each.key].id
 
   rule {
-    id     = "cleanup_incomplete_uploads"
-    status = "Enabled"
-
-    filter {}
-
-    abort_incomplete_multipart_upload {
-      days_after_initiation = 7
-    }
-  }
-  
-  rule {
     id     = "delete_all_files"
     status = "Enabled"
     
@@ -102,6 +91,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "ingress_buckets" {
     
     noncurrent_version_expiration {
       noncurrent_days = var.ingress_retention_days
+    }
+    
+    abort_incomplete_multipart_upload {
+      days_after_initiation = var.ingress_retention_days
     }
   }
 }
