@@ -1,5 +1,5 @@
-const AWS = require("aws-sdk");
-const S3 = new AWS.S3();
+const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 const sharp = require("sharp");
 const ExifParser = require("exif-parser");
 
@@ -8,28 +8,30 @@ const SUPPORTED_FORMATS = ["jpg", "jpeg", "png", "tiff", "tif", "webp"];
 
 // Configuration from environment variables
 const CONFIG = {
-  // Comma-separated list of allowed source buckets (optional - if not set, allows any bucket)
-  ALLOWED_SOURCE_BUCKETS: process.env.ALLOWED_SOURCE_BUCKETS?.split(',').map(b => b.trim()),
-  
-  // Target bucket for processed files (if different from source)
-  PROCESSED_BUCKET: process.env.PROCESSED_BUCKET || null, // null means use same bucket as source
-  
-  // Prefix for processed files
-  PROCESSED_PREFIX: process.env.PROCESSED_PREFIX || 'processed/',
-  
-  // Whether to delete original file after processing
-  DELETE_ORIGINAL: process.env.DELETE_ORIGINAL === 'true',
-  
-  // Skip processing if file already in processed folder
-  SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false' // default true
+	// Comma-separated list of allowed source buckets (optional - if not set, allows any bucket)
+	ALLOWED_SOURCE_BUCKETS: process.env.ALLOWED_SOURCE_BUCKETS?.split(',').map(b => b.trim()),
+
+	// Target bucket for processed files (if different from source)
+	PROCESSED_BUCKET: process.env.PROCESSED_BUCKET || null, // null means use same bucket as source
+
+	// Prefix for processed files
+	PROCESSED_PREFIX: process.env.PROCESSED_PREFIX || 'processed/',
+
+	// Whether to delete original file after processing
+	DELETE_ORIGINAL: process.env.DELETE_ORIGINAL === 'true',
+
+	// Skip processing if file already in processed folder
+	SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false' // default true
 };
 
 exports.handler = async (event) => {
-	console.log(
+	const startTime = Date.now();
+	console.info(
 		"Photo processing Lambda triggered:",
 		JSON.stringify(event, null, 2)
 	);
-	console.log("Configuration:", CONFIG);
+	console.info("Configuration:", CONFIG);
+	console.info(`Lambda memory: ${process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE}MB, Node.js: ${process.version}`);
 
 	try {
 		// Validate event structure
@@ -44,28 +46,30 @@ exports.handler = async (event) => {
 
 		const sourceBucket = record.s3.bucket.name;
 		const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
-		
+		const fileSize = record.s3.object.size || 'unknown';
+
 		// Determine target bucket (same as source or specified processed bucket)
 		const targetBucket = CONFIG.PROCESSED_BUCKET || sourceBucket;
 
-		console.log(`Processing file: ${sourceBucket}/${key} → ${targetBucket}`);
-		
+		console.info(`Processing file: ${sourceBucket}/${key} → ${targetBucket}`);
+		console.info(`Original file size: ${typeof fileSize === 'number' ? (fileSize / 1024 / 1024).toFixed(2) + 'MB' : fileSize}`);
+
 		// Check if source bucket is allowed (if restriction is configured)
 		if (CONFIG.ALLOWED_SOURCE_BUCKETS && !CONFIG.ALLOWED_SOURCE_BUCKETS.includes(sourceBucket)) {
-			console.log(`Bucket ${sourceBucket} not in allowed list: ${CONFIG.ALLOWED_SOURCE_BUCKETS.join(', ')}`);
+			console.warn(`Bucket ${sourceBucket} not in allowed list: ${CONFIG.ALLOWED_SOURCE_BUCKETS.join(', ')}`);
 			return { status: "skipped", reason: "bucket_not_allowed", bucket: sourceBucket };
 		}
 
 		// Check if file is already in processed folder to avoid infinite loops
 		if (CONFIG.SKIP_PROCESSED_FOLDER && key.startsWith(CONFIG.PROCESSED_PREFIX)) {
-			console.log("File already in processed folder, skipping");
+			console.info("File already in processed folder, skipping");
 			return { status: "skipped", reason: "already_processed" };
 		}
 
 		// Validate file extension
 		const ext = key.split(".").pop()?.toLowerCase();
 		if (!ext || !SUPPORTED_FORMATS.includes(ext)) {
-			console.log(`Unsupported file format: ${ext}`);
+			console.info(`Unsupported file format: ${ext}`);
 			return {
 				status: "skipped",
 				reason: "unsupported_format",
@@ -74,12 +78,19 @@ exports.handler = async (event) => {
 		}
 
 		// Download image
-		console.log("Downloading original image from S3");
-		const original = await S3.getObject({ Bucket: sourceBucket, Key: key }).promise();
+		const downloadStart = Date.now();
+		console.info("Downloading original image from S3");
+		const getObjectCommand = new GetObjectCommand({ Bucket: sourceBucket, Key: key });
+		const original = await s3Client.send(getObjectCommand);
+		const downloadTime = Date.now() - downloadStart;
 
 		if (!original.Body) {
 			throw new Error("Failed to download image from S3");
 		}
+
+		const actualFileSize = original.ContentLength || original.Body.length;
+		console.info(`Download completed in ${downloadTime}ms, actual size: ${(actualFileSize / 1024 / 1024).toFixed(2)}MB`);
+		console.info(`Content-Type: ${original.ContentType || 'unknown'}, Last-Modified: ${original.LastModified || 'unknown'}`);
 
 		// Parse EXIF data with error handling
 		let exif = null;
@@ -87,23 +98,32 @@ exports.handler = async (event) => {
 		let camera = "unknown";
 
 		try {
-			console.log("Parsing EXIF data");
+			console.info("Parsing EXIF data");
 			const parser = ExifParser.create(original.Body);
 			exif = parser.parse();
 
 			// Extract date with multiple fallback options
+			let dateSource = 'none';
 			if (exif.tags.DateTimeOriginal) {
 				exifDate = new Date(exif.tags.DateTimeOriginal * 1000);
+				dateSource = 'DateTimeOriginal';
 			} else if (exif.tags.DateTime) {
 				exifDate = new Date(exif.tags.DateTime * 1000);
+				dateSource = 'DateTime';
 			} else if (exif.tags.CreateDate) {
 				exifDate = new Date(exif.tags.CreateDate * 1000);
+				dateSource = 'CreateDate';
 			}
 
 			camera = exif.tags.Make || "unknown";
-			console.log(`EXIF data parsed - Date: ${exifDate}, Camera: ${camera}`);
+			const gpsAvailable = exif.tags.GPSLatitude && exif.tags.GPSLongitude;
+			console.info(`EXIF data parsed - Date: ${exifDate} (from ${dateSource}), Camera: ${camera}, GPS: ${gpsAvailable ? 'yes' : 'no'}`);
+			if (exif.tags.Make || exif.tags.Model) {
+				console.info(`Camera details: ${exif.tags.Make || 'unknown'} ${exif.tags.Model || 'unknown'}`);
+			}
 		} catch (exifError) {
 			console.warn("Failed to parse EXIF data:", exifError.message);
+			console.warn("Will use current timestamp for file naming");
 		}
 
 		// Use EXIF date or fall back to current timestamp
@@ -115,10 +135,11 @@ exports.handler = async (event) => {
 			.split(".")[0];
 		const baseName = `photo-${timestamp}-${camera.replace(/\s+/g, "_")}`;
 
-		console.log(`Generated base name: ${baseName}`);
+		console.info(`Generated base name: ${baseName}`);
 
 		// Create multiple sizes for different use cases
-		console.log("Creating image variations");
+		const processingStart = Date.now();
+		console.info("Creating image variations");
 		const [large, medium, small, thumb] = await Promise.all([
 			sharp(original.Body)
 				.resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
@@ -137,11 +158,17 @@ exports.handler = async (event) => {
 				.jpeg({ quality: 70 })
 				.toBuffer(),
 		]);
+		const processingTime = Date.now() - processingStart;
 
-		console.log("Image variations created successfully");
+		console.info(`Image variations created in ${processingTime}ms`);
+		console.info(`Generated sizes - Large: ${(large.length/1024).toFixed(1)}KB, Medium: ${(medium.length/1024).toFixed(1)}KB, Small: ${(small.length/1024).toFixed(1)}KB, Thumb: ${(thumb.length/1024).toFixed(1)}KB`);
 
 		// Get original image metadata for the JSON file
 		const imageMetadata = await sharp(original.Body).metadata();
+		console.info(`Original image: ${imageMetadata.width}x${imageMetadata.height} ${imageMetadata.format?.toUpperCase()}, ${imageMetadata.channels} channels, ${imageMetadata.density || 'unknown'} DPI`);
+		if (imageMetadata.space) {
+			console.info(`Color space: ${imageMetadata.space}, hasProfile: ${!!imageMetadata.icc}`);
+		}
 
 		// Create comprehensive metadata object
 		const metadata = {
@@ -186,79 +213,74 @@ exports.handler = async (event) => {
 		};
 
 		// Upload all files in parallel for better performance
-		console.log("Uploading processed files to S3");
+		const uploadStart = Date.now();
+		console.info(`Uploading processed files to S3 (${uploadPromises.length} files)`);
 		const uploadPromises = [];
 
 		// Upload original with new name
 		uploadPromises.push(
-			S3.putObject({
-				Bucket: bucket,
-				Key: `processed/${baseName}.${ext}`,
+			s3Client.send(new PutObjectCommand({
+				Bucket: targetBucket,
+				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}.${ext}`,
 				Body: original.Body,
 				ContentType: original.ContentType,
-				CacheControl: "public, max-age=31536000", // 1 year cache
+				CacheControl: 'public, max-age=31536000', // 1 year cache
 				Metadata: {
-					"original-key": key,
-					"processed-at": new Date().toISOString(),
-				},
-			}).promise()
+					'original-key': key,
+					'original-bucket': sourceBucket,
+					'processed-at': new Date().toISOString()
+				}
+			}))
 		);
 
 		// Upload resized versions
 		uploadPromises.push(
-			S3.putObject({
-				Bucket: bucket,
-				Key: `processed/${baseName}_large.jpg`,
+			s3Client.send(new PutObjectCommand({
+				Bucket: targetBucket,
+				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}_large.jpg`,
 				Body: large,
-				ContentType: "image/jpeg",
-				CacheControl: "public, max-age=31536000",
-			}).promise()
+				ContentType: 'image/jpeg',
+				CacheControl: 'public, max-age=31536000'
+			}))
 		);
 
 		uploadPromises.push(
-			S3.putObject({
-				Bucket: bucket,
-				Key: `processed/${baseName}_medium.jpg`,
+			s3Client.send(new PutObjectCommand({
+				Bucket: targetBucket,
+				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}_medium.jpg`,
 				Body: medium,
-				ContentType: "image/jpeg",
-				CacheControl: "public, max-age=31536000",
-			}).promise()
+				ContentType: 'image/jpeg',
+				CacheControl: 'public, max-age=31536000'
+			}))
 		);
 
 		uploadPromises.push(
-			S3.putObject({
-				Bucket: bucket,
-				Key: `processed/${baseName}_small.jpg`,
+			s3Client.send(new PutObjectCommand({
+				Bucket: targetBucket,
+				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}_small.jpg`,
 				Body: small,
-				ContentType: "image/jpeg",
-				CacheControl: "public, max-age=31536000",
-			}).promise()
-		);
-
-		uploadPromises.push(
-			S3.putObject({
-				Bucket: bucket,
-				Key: `processed/${baseName}_thumb.jpg`,
-				Body: thumb,
-				ContentType: "image/jpeg",
-				CacheControl: "public, max-age=31536000",
-			}).promise()
+				ContentType: 'image/jpeg',
+				CacheControl: 'public, max-age=31536000'
+			}))
 		);
 
 		// Upload metadata JSON
 		uploadPromises.push(
-			S3.putObject({
-				Bucket: bucket,
-				Key: `processed/${baseName}.json`,
+			s3Client.send(new PutObjectCommand({
+				Bucket: targetBucket,
+				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}.json`,
 				Body: JSON.stringify(metadata, null, 2),
-				ContentType: "application/json",
-				CacheControl: "public, max-age=3600", // 1 hour cache for metadata
-			}).promise()
+				ContentType: 'application/json',
+				CacheControl: 'public, max-age=3600' // 1 hour cache for metadata
+			}))
 		);
 
 		// Wait for all uploads to complete
 		await Promise.all(uploadPromises);
-		console.log("All files uploaded successfully");
+		const uploadTime = Date.now() - uploadStart;
+		const totalTime = Date.now() - startTime;
+		console.info(`All files uploaded successfully in ${uploadTime}ms`);
+		console.info(`Total processing time: ${totalTime}ms (Download: ${downloadTime}ms, Processing: ${processingTime}ms, Upload: ${uploadTime}ms)`);
 
 		return {
 			status: "success",
@@ -266,16 +288,38 @@ exports.handler = async (event) => {
 			originalKey: key,
 			processedFiles: Object.values(metadata.versions),
 			metadata: `processed/${baseName}.json`,
+			processingMetrics: {
+				totalTimeMs: totalTime,
+				downloadTimeMs: downloadTime,
+				processingTimeMs: processingTime,
+				uploadTimeMs: uploadTime,
+				originalSizeMB: (actualFileSize / 1024 / 1024).toFixed(2)
+			}
 		};
 	} catch (error) {
-		console.error("Error processing photo:", error);
+		const totalTime = Date.now() - startTime;
+		console.error(`Error processing photo after ${totalTime}ms:`, error.message);
+		console.error("Error stack:", error.stack);
+		
+		// Add context about where the error occurred
+		if (error.message.includes('getObject')) {
+			console.error("Error occurred during S3 download phase");
+		} else if (error.message.includes('Sharp') || error.message.includes('resize')) {
+			console.error("Error occurred during image processing phase");
+		} else if (error.message.includes('putObject') || error.message.includes('upload')) {
+			console.error("Error occurred during S3 upload phase");
+		} else if (error.message.includes('EXIF')) {
+			console.error("Error occurred during EXIF parsing phase");
+		}
 
 		// Return detailed error information
 		return {
 			status: "error",
 			error: error.message,
+			errorCode: error.code || 'UNKNOWN',
 			stack: error.stack,
 			originalKey: key || "unknown",
+			processingTimeMs: totalTime
 		};
 	}
 };
