@@ -154,7 +154,7 @@ async function checkForDuplicates(targetBucket, shotDate, camera, fileSize, exif
 /**
  * Handle duplicate file cleanup based on configuration
  */
-async function handleDuplicateFile(sourceBucket, key, targetBucket, duplicateCheck, duplicateAction, duplicatesPrefix) {
+async function handleDuplicateFile(sourceBucket, key, targetBucket, duplicateCheck, duplicateAction, duplicatesPrefix, originalContentType) {
 	try {
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").split(".")[0];
 		const originalFilename = key.split('/').pop(); // Get just the filename, not the full path
@@ -179,6 +179,9 @@ async function handleDuplicateFile(sourceBucket, key, targetBucket, duplicateChe
 					Bucket: targetBucket,
 					Key: duplicateKey,
 					CopySource: `${sourceBucket}/${encodeURIComponent(key)}`,
+					ContentType: originalContentType || 'image/jpeg', // Ensure proper content type
+					ContentDisposition: 'inline', // Allow browser viewing instead of forcing download
+					CacheControl: 'public, max-age=86400', // 24 hour cache for duplicates
 					Metadata: {
 						'original-key': key,
 						'original-bucket': sourceBucket,
@@ -364,7 +367,8 @@ exports.handler = async (event) => {
 					targetBucket,
 					duplicateCheck,
 					CONFIG.DUPLICATE_ACTION,
-					CONFIG.DUPLICATES_PREFIX
+					CONFIG.DUPLICATES_PREFIX,
+					original.ContentType
 				);
 				
 				return {
