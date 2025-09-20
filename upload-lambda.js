@@ -163,7 +163,7 @@ const CONFIG = {
 				.jpeg({ quality: 75 })
 				.toBuffer(),
 			sharp(imageBuffer)
-				.resize(100, 100, { fit: "inside", withoutEnlargement: true })
+				.resize(150, 150, { fit: "inside", withoutEnlargement: true })
 				.jpeg({ quality: 70 })
 				.toBuffer(),
 		]);
