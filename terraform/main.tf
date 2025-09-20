@@ -256,38 +256,6 @@ resource "docker_registry_image" "lambda_image" {
   triggers = docker_image.lambda_image.triggers
 }
 
-resource "aws_ecr_lifecycle_policy" "lambda_repo" {
-  repository = aws_ecr_repository.lambda_repo.name
-
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Keep last 5 images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 5
-        }
-        action = {
-          type = "expire"
-        }
-      }
-    ]
-  })
-}
-
-#===============================================================================
-# ECR Image Reference
-#===============================================================================
-
-# This assumes the Docker image is built and pushed by GitHub Actions
-# We reference the image using the "latest" tag
-locals {
-  lambda_image_uri = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
-}
-
 #===============================================================================
 # IAM Role and Policies for Lambda
 #===============================================================================
