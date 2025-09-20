@@ -157,6 +157,7 @@ async function checkForDuplicates(targetBucket, shotDate, camera, fileSize, exif
 async function handleDuplicateFile(sourceBucket, key, targetBucket, duplicateCheck, duplicateAction, duplicatesPrefix) {
 	try {
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").split(".")[0];
+		const originalFilename = key.split('/').pop(); // Get just the filename, not the full path
 		
 		switch (duplicateAction.toLowerCase()) {
 			case 'delete':
@@ -169,7 +170,8 @@ async function handleDuplicateFile(sourceBucket, key, targetBucket, duplicateChe
 				return { action: 'deleted', location: null };
 				
 			case 'move':
-				const duplicateKey = `${duplicatesPrefix}${timestamp}-${key.split('/').pop()}`;
+				// Preserve original filename with processing timestamp: duplicates/2025-09-20_03-23-33-DSCF8545.jpg
+				const duplicateKey = `${duplicatesPrefix}${timestamp}-${originalFilename}`;
 				console.info(`Moving duplicate file to: ${duplicateKey}`);
 				
 				// Copy to duplicates folder with metadata about why it's a duplicate
@@ -253,6 +255,12 @@ exports.handler = async (event) => {
 		if (CONFIG.SKIP_PROCESSED_FOLDER && key.startsWith(CONFIG.PROCESSED_PREFIX)) {
 			console.info("File already in processed folder, skipping");
 			return { status: "skipped", reason: "already_processed" };
+		}
+
+		// Check if file is already in duplicates folder to avoid infinite loops
+		if (key.startsWith(CONFIG.DUPLICATES_PREFIX)) {
+			console.info("File already in duplicates folder, skipping");
+			return { status: "skipped", reason: "already_in_duplicates" };
 		}
 
 		// Validate file extension
