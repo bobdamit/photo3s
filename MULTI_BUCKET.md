@@ -32,27 +32,34 @@ SKIP_PROCESSED_FOLDER=true
 3. No code deployment needed!
 
 ### GitHub Actions Setup:
-Set these as GitHub repository secrets for automatic deployment configuration:
+Configure deployment using GitHub Repository Secrets and Variables:
 
-**In your GitHub repository: Settings → Secrets and variables → Actions → Repository secrets**
-
+**GitHub Repository Secrets** (Settings → Secrets and variables → Actions → Repository secrets):
 ```bash
-# Required for deployment
+# Required AWS credentials (keep these as secrets - they're sensitive)
 AWS_ACCESS_KEY_ID=your-access-key
 AWS_SECRET_ACCESS_KEY=your-secret-key
 AWS_REGION=us-east-1
 LAMBDA_FUNCTION_NAME=phot3s-upload-lambda
+```
 
-# Optional bucket configuration (if not set, allows any bucket)
+**GitHub Repository Variables** (Settings → Secrets and variables → Actions → Variables):
+```bash
+# S3 bucket configuration (use variables - not sensitive information)
 ALLOWED_SOURCE_BUCKETS=bucket-1,bucket-2,my-photos
 PROCESSED_BUCKET=my-processed-photos
 PROCESSED_PREFIX=processed/
 DELETE_ORIGINAL=false
 ```
 
+**Why Variables instead of Secrets?**
+- 🔒 **Secrets**: For sensitive data (AWS keys, passwords) - hidden in logs
+- 📋 **Variables**: For configuration (bucket names, prefixes) - visible in workflow runs
+- 🎯 **Better practice**: Bucket names aren't sensitive, so Variables are more appropriate
+
 The GitHub Actions workflow will automatically:
 - Create IAM roles with permissions for the specified buckets
-- Configure Lambda environment variables from the secrets
+- Configure Lambda environment variables from the variables
 - Deploy with the correct bucket access policies
 
 ## Option 2: Multiple Lambda Functions

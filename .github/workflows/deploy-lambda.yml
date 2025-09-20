@@ -9,11 +9,11 @@ on:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
   LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME || 'phot3s-upload-lambda' }}
-  # S3 bucket configuration - set these in GitHub secrets for multi-bucket support
-  ALLOWED_SOURCE_BUCKETS: ${{ secrets.ALLOWED_SOURCE_BUCKETS || '' }}
-  PROCESSED_BUCKET: ${{ secrets.PROCESSED_BUCKET || '' }}
-  PROCESSED_PREFIX: ${{ secrets.PROCESSED_PREFIX || 'processed/' }}
-  DELETE_ORIGINAL: ${{ secrets.DELETE_ORIGINAL || 'false' }}
+  # S3 bucket configuration - set these in GitHub Variables (not secrets since they're not sensitive)
+  ALLOWED_SOURCE_BUCKETS: ${{ vars.ALLOWED_SOURCE_BUCKETS || '' }}
+  PROCESSED_BUCKET: ${{ vars.PROCESSED_BUCKET || '' }}
+  PROCESSED_PREFIX: ${{ vars.PROCESSED_PREFIX || 'processed/' }}
+  DELETE_ORIGINAL: ${{ vars.DELETE_ORIGINAL || 'false' }}
 
 jobs:
   test:
