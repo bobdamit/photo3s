@@ -17,7 +17,6 @@ locals {
   
   # Lambda environment variables
   lambda_environment = {
-    AWS_REGION                = var.aws_region
     PROCESSED_PREFIX         = "processed/"
     DELETE_ORIGINAL          = tostring(var.delete_original)
     CHECK_DUPLICATES         = tostring(var.check_duplicates)
@@ -177,10 +176,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
     }
   }
 }
-
-#===============================================================================
-# ECR Repository for Lambda Container
-#===============================================================================
 
 #===============================================================================
 # ECR Repository for Lambda Container
