@@ -177,10 +177,17 @@ jobs:
         working-directory: terraform
         continue-on-error: true
         run: |
+          set +e  # Allow command to fail
           terraform plan \
             -var-file="${{ env.ENVIRONMENT }}.tfvars" \
             -out=tfplan-${{ env.ENVIRONMENT }} \
             -detailed-exitcode
+          
+          PLAN_EXIT_CODE=$?
+          echo "exitcode=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Exit with the actual terraform exit code
+          exit $PLAN_EXIT_CODE
 
       - name: Upload Terraform plan
         uses: actions/upload-artifact@v4
