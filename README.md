@@ -285,4 +285,4 @@ Supported formats: JPG, JPEG, PNG, TIFF, WebP
 
 ## License
 
-ISC
+ISC# SSH is better for regular development!
