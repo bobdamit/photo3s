@@ -114,12 +114,16 @@ jobs:
 
     - name: Deploy with SAM
       run: |
+        # Disable SAM CLI telemetry for CI/CD
+        export SAM_CLI_TELEMETRY=0
+        
         sam deploy \
           --no-confirm-changeset \
           --no-fail-on-empty-changeset \
           --stack-name photo-processing-lambda \
           --capabilities CAPABILITY_IAM \
-          --region ${{ env.AWS_REGION }}
+          --region ${{ env.AWS_REGION }} \
+          --resolve-s3
 
     - name: Verify deployment
       run: |
