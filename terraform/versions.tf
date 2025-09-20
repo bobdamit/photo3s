@@ -8,10 +8,10 @@ terraform {
     }
   }
 
-  # Optional: Configure remote state
-  # backend "s3" {
-  #   bucket = "your-terraform-state-bucket"
-  #   key    = "photo3s/terraform.tfstate"
-  #   region = "us-east-1"
-  # }
+  # S3 Backend for remote state management
+  backend "s3" {
+    bucket = "photo3s-dev-terraform-state"
+    key    = "terraform.tfstate"
+    region = "us-east-1"
+  }
 }
