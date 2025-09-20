@@ -1,0 +1,188 @@
+name: Deploy Photo Processing Lambda (Using GitHub Actions)
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: 
+      - '**.md'
+      - 'test-local.sh'
+  workflow_dispatch:
+
+env:
+  LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME || 'phot3s-upload-lambda' }}
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  # Environment variables from GitHub Variables (non-sensitive)
+  ALLOWED_SOURCE_BUCKETS: ${{ vars.ALLOWED_SOURCE_BUCKETS }}
+  PROCESSED_BUCKET: ${{ vars.PROCESSED_BUCKET }}
+  PROCESSED_PREFIX: ${{ vars.PROCESSED_PREFIX || 'processed/' }}
+  DELETE_ORIGINAL: ${{ vars.DELETE_ORIGINAL || 'false' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run tests (if any)
+      run: npm test --if-present
+
+    - name: Validate Lambda function syntax
+      run: node -c upload-lambda.js
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      function-name: ${{ env.LAMBDA_FUNCTION_NAME }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Validate required secrets
+      run: |
+        if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+          echo "❌ Error: AWS credentials not configured"
+          echo "Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in repository secrets"
+          exit 1
+        fi
+        echo "✅ AWS credentials are configured"
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # Use SAM CLI for Lambda deployment - more robust than manual steps
+    - name: Setup AWS SAM CLI
+      uses: aws-actions/setup-sam@v2
+
+    - name: Create SAM template
+      run: |
+        cat > template.yaml << 'EOF'
+        AWSTemplateFormatVersion: '2010-09-09'
+        Transform: AWS::Serverless-2016-10-31
+        Description: Photo Processing Lambda Function
+
+        Resources:
+          PhotoProcessingFunction:
+            Type: AWS::Serverless::Function
+            Properties:
+              FunctionName: ${{ env.LAMBDA_FUNCTION_NAME }}
+              Runtime: nodejs18.x
+              Handler: upload-lambda.handler
+              CodeUri: .
+              MemorySize: 512
+              Timeout: 60
+              Environment:
+                Variables:
+                  ALLOWED_SOURCE_BUCKETS: ${{ env.ALLOWED_SOURCE_BUCKETS }}
+                  PROCESSED_BUCKET: ${{ env.PROCESSED_BUCKET }}
+                  PROCESSED_PREFIX: ${{ env.PROCESSED_PREFIX }}
+                  DELETE_ORIGINAL: ${{ env.DELETE_ORIGINAL }}
+                  SKIP_PROCESSED_FOLDER: "true"
+              Policies:
+                - S3FullAccessPolicy:
+                    BucketName: "*"
+                - CloudWatchLogsFullAccess
+
+        Outputs:
+          PhotoProcessingFunctionArn:
+            Description: "Photo Processing Lambda Function ARN"
+            Value: !GetAtt PhotoProcessingFunction.Arn
+        EOF
+
+    - name: Deploy with SAM
+      run: |
+        sam deploy \
+          --no-confirm-changeset \
+          --no-fail-on-empty-changeset \
+          --stack-name photo-processing-lambda \
+          --capabilities CAPABILITY_IAM \
+          --region ${{ env.AWS_REGION }}
+
+    - name: Verify deployment
+      run: |
+        echo "🔍 Verifying deployment..."
+        aws lambda get-function \
+          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --query 'Configuration.{FunctionName:FunctionName,State:State,Runtime:Runtime,MemorySize:MemorySize}' \
+          --output table
+        
+        echo ""
+        echo "📋 Environment variables:"
+        aws lambda get-function-configuration \
+          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --query 'Environment.Variables' \
+          --output table
+
+    - name: Test function invocation
+      run: |
+        echo "🧪 Testing Lambda function with empty event..."
+        aws lambda invoke \
+          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --payload '{"Records":[]}' \
+          --cli-read-timeout 30 \
+          response.json
+        
+        echo "Function response:"
+        cat response.json
+        echo ""
+
+  notify:
+    needs: [test, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Notify deployment result
+      run: |
+        if [ "${{ needs.deploy.result }}" = "success" ]; then
+          echo "🎉 DEPLOYMENT SUCCESSFUL!"
+          echo "=============================="
+          echo "Your photo processing Lambda is now deployed and ready to use."
+          echo ""
+          echo "📋 What was deployed:"
+          echo "   • Lambda Function: ${{ needs.deploy.outputs.function-name }}"
+          echo "   • Runtime: Node.js 18.x with sharp, exif-parser libraries"
+          echo "   • Memory: 512MB, Timeout: 60 seconds"
+          echo "   • IAM Role: Automatically created by SAM"
+          echo ""
+          echo "🚀 Next Steps:"
+          echo "   1. Configure S3 bucket triggers via AWS Console"
+          echo "   2. Upload test photos to trigger processing"
+          echo "   3. Check CloudWatch logs for processing results"
+          echo ""
+          echo "📚 Documentation:"
+          echo "   • Multi-bucket setup: See MULTI_BUCKET.md"
+          echo "   • S3 trigger setup: See README.md"
+          echo "   • Troubleshooting: Check CloudWatch logs at /aws/lambda/${{ needs.deploy.outputs.function-name }}"
+        else
+          echo "❌ DEPLOYMENT FAILED"
+          echo "==================="
+          echo "Check the logs above for details."
+          echo "Common issues:"
+          echo "   • AWS credentials not configured"
+          echo "   • Insufficient IAM permissions"
+          echo "   • Function name already exists"
+          exit 1
+        fi
