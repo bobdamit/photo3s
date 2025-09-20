@@ -318,18 +318,38 @@ jobs:
         echo "Running post-deployment checks to ensure everything is working..."
         echo ""
         
-        # Check function status
+        # Check function status with retry logic
         echo "🏥 Health Check: Lambda Function Status"
-        FUNCTION_STATE=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.State' --output text)
-        echo "   Current State: $FUNCTION_STATE"
+        echo "⏳ Waiting for Lambda function to become active (this can take 30-60 seconds)..."
         
-        if [ "$FUNCTION_STATE" = "Active" ]; then
-          echo "   ✅ HEALTHY: Lambda function is active and ready to process photos"
-        else
-          echo "   ❌ UNHEALTHY: Lambda function is not in active state"
-          echo "   This usually means the function is still initializing or has configuration issues"
-          exit 1
-        fi
+        MAX_ATTEMPTS=12
+        ATTEMPT=1
+        
+        while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+          FUNCTION_STATE=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.State' --output text)
+          echo "   Attempt $ATTEMPT/$MAX_ATTEMPTS - Current State: $FUNCTION_STATE"
+          
+          if [ "$FUNCTION_STATE" = "Active" ]; then
+            echo "   ✅ HEALTHY: Lambda function is active and ready to process photos"
+            break
+          elif [ "$FUNCTION_STATE" = "Failed" ]; then
+            echo "   ❌ FAILED: Lambda function failed to initialize"
+            echo "   Check the function configuration and IAM role permissions"
+            exit 1
+          else
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "   ❌ TIMEOUT: Function did not become active within 3 minutes"
+              echo "   Current state: $FUNCTION_STATE"
+              echo "   This may be normal - check AWS Console for function status"
+              echo "   The function might still be initializing successfully"
+              exit 1
+            fi
+            echo "   ⏳ State: $FUNCTION_STATE - waiting 15 seconds before retry..."
+            sleep 15
+          fi
+          
+          ATTEMPT=$((ATTEMPT + 1))
+        done
         
         echo ""
         echo "📊 Function Summary:"
