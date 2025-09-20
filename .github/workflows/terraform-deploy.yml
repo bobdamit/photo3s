@@ -32,7 +32,7 @@ on:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-  TF_VERSION: '1.6.0'
+  TF_VERSION: '1.13.3'
 
 jobs:
   # Determine environment and validate changes
@@ -164,8 +164,8 @@ jobs:
         env:
           TF_PLUGIN_CACHE_DIR: ""
         run: |
-          # Disable provider signature verification to work around expired key issue
-          terraform init -upgrade -verify-plugins=false
+          # Try with just upgrade flag - invalid -verify-plugins flag removed
+          terraform init -upgrade
 
       - name: Select or create Terraform workspace
         working-directory: terraform
@@ -270,8 +270,8 @@ jobs:
         env:
           TF_PLUGIN_CACHE_DIR: ""
         run: |
-          # Disable provider signature verification to work around expired key issue
-          terraform init -upgrade -verify-plugins=false
+          # Updated to use latest Terraform version - may handle provider signatures better
+          terraform init -upgrade
 
       - name: Select Terraform workspace
         working-directory: terraform
@@ -346,8 +346,8 @@ jobs:
         env:
           TF_PLUGIN_CACHE_DIR: ""
         run: |
-          # Disable provider signature verification to work around expired key issue
-          terraform init -upgrade -verify-plugins=false
+          # Updated to use latest Terraform version - may handle provider signatures better
+          terraform init -upgrade
 
       - name: Select Terraform workspace
         working-directory: terraform
