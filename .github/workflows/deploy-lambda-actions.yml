@@ -79,7 +79,32 @@ jobs:
 
     - name: Create SAM template
       run: |
-        cat > template.yaml << 'EOF'
+        # Build environment variables dynamically, excluding empty/null values
+        echo "Building environment variables for Lambda..."
+        ENV_VARS=""
+        
+        # Always include required variables
+        ENV_VARS="${ENV_VARS}                  SKIP_PROCESSED_FOLDER: \"true\"\n"
+        ENV_VARS="${ENV_VARS}                  PROCESSED_PREFIX: \"${{ env.PROCESSED_PREFIX }}\"\n"
+        ENV_VARS="${ENV_VARS}                  DELETE_ORIGINAL: \"${{ env.DELETE_ORIGINAL }}\"\n"
+        
+        # Only include optional variables if they're not empty
+        if [ -n "${{ env.ALLOWED_SOURCE_BUCKETS }}" ]; then
+          echo "✅ Including ALLOWED_SOURCE_BUCKETS: ${{ env.ALLOWED_SOURCE_BUCKETS }}"
+          ENV_VARS="${ENV_VARS}                  ALLOWED_SOURCE_BUCKETS: \"${{ env.ALLOWED_SOURCE_BUCKETS }}\"\n"
+        else
+          echo "⚠️  ALLOWED_SOURCE_BUCKETS not set - Lambda will allow any source bucket"
+        fi
+        
+        if [ -n "${{ env.PROCESSED_BUCKET }}" ]; then
+          echo "✅ Including PROCESSED_BUCKET: ${{ env.PROCESSED_BUCKET }}"
+          ENV_VARS="${ENV_VARS}                  PROCESSED_BUCKET: \"${{ env.PROCESSED_BUCKET }}\"\n"
+        else
+          echo "ℹ️  PROCESSED_BUCKET not set - will use same bucket as source"
+        fi
+        
+        echo "📄 Creating SAM template with dynamic environment variables..."
+        cat > template.yaml << EOF
         AWSTemplateFormatVersion: '2010-09-09'
         Transform: AWS::Serverless-2016-10-31
         Description: Photo Processing Lambda Function
@@ -96,11 +121,7 @@ jobs:
               Timeout: 60
               Environment:
                 Variables:
-                  ALLOWED_SOURCE_BUCKETS: ${{ env.ALLOWED_SOURCE_BUCKETS }}
-                  PROCESSED_BUCKET: ${{ env.PROCESSED_BUCKET }}
-                  PROCESSED_PREFIX: ${{ env.PROCESSED_PREFIX }}
-                  DELETE_ORIGINAL: ${{ env.DELETE_ORIGINAL }}
-                  SKIP_PROCESSED_FOLDER: "true"
+        $(echo -e "$ENV_VARS")
               Policies:
                 - S3FullAccessPolicy:
                     BucketName: "*"
@@ -111,6 +132,9 @@ jobs:
             Description: "Photo Processing Lambda Function ARN"
             Value: !GetAtt PhotoProcessingFunction.Arn
         EOF
+        
+        echo "📄 Generated SAM template:"
+        cat template.yaml
 
     - name: Deploy with SAM
       run: |
