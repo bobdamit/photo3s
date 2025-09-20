@@ -18,7 +18,7 @@ const CONFIG = {
 	PROCESSED_PREFIX: process.env.PROCESSED_PREFIX || 'processed/',
 
 	// Whether to delete original file after processing
-	DELETE_ORIGINAL: process.env.DELETE_ORIGINAL === 'true',
+	DELETE_ORIGINAL: process.env.DELETE_ORIGINAL !== 'false',
 
 	// Skip processing if file already in processed folder
 	SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false' // default true
@@ -180,6 +180,7 @@ const CONFIG = {
 		}
 
 		// Create comprehensive metadata object
+		const photoFolder = `${CONFIG.PROCESSED_PREFIX}${baseName}/`;
 		const metadata = {
 			originalKey: key,
 			newBaseName: baseName,
@@ -213,11 +214,11 @@ const CONFIG = {
 				: null,
 			processedAt: new Date().toISOString(),
 			versions: {
-				original: `processed/${baseName}.${ext}`,
-				large: `processed/${baseName}_large.jpg`,
-				medium: `processed/${baseName}_medium.jpg`,
-				small: `processed/${baseName}_small.jpg`,
-				thumb: `processed/${baseName}_thumb.jpg`,
+				original: `${photoFolder}${baseName}.${ext}`,
+				large: `${photoFolder}${baseName}_large.jpg`,
+				medium: `${photoFolder}${baseName}_medium.jpg`,
+				small: `${photoFolder}${baseName}_small.jpg`,
+				thumb: `${photoFolder}${baseName}_thumb.jpg`,
 			},
 		};
 
@@ -230,7 +231,7 @@ const CONFIG = {
 		uploadPromises.push(
 			s3Client.send(new PutObjectCommand({
 				Bucket: targetBucket,
-				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}.${ext}`,
+				Key: `${photoFolder}${baseName}.${ext}`,
 				Body: imageBuffer,
 				ContentType: original.ContentType,
 				CacheControl: 'public, max-age=31536000', // 1 year cache
@@ -246,7 +247,7 @@ const CONFIG = {
 		uploadPromises.push(
 			s3Client.send(new PutObjectCommand({
 				Bucket: targetBucket,
-				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}_large.jpg`,
+				Key: `${photoFolder}${baseName}_large.jpg`,
 				Body: large,
 				ContentType: 'image/jpeg',
 				CacheControl: 'public, max-age=31536000'
@@ -256,7 +257,7 @@ const CONFIG = {
 		uploadPromises.push(
 			s3Client.send(new PutObjectCommand({
 				Bucket: targetBucket,
-				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}_medium.jpg`,
+				Key: `${photoFolder}${baseName}_medium.jpg`,
 				Body: medium,
 				ContentType: 'image/jpeg',
 				CacheControl: 'public, max-age=31536000'
@@ -266,8 +267,18 @@ const CONFIG = {
 		uploadPromises.push(
 			s3Client.send(new PutObjectCommand({
 				Bucket: targetBucket,
-				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}_small.jpg`,
+				Key: `${photoFolder}${baseName}_small.jpg`,
 				Body: small,
+				ContentType: 'image/jpeg',
+				CacheControl: 'public, max-age=31536000'
+			}))
+		);
+
+		uploadPromises.push(
+			s3Client.send(new PutObjectCommand({
+				Bucket: targetBucket,
+				Key: `${photoFolder}${baseName}_thumb.jpg`,
+				Body: thumb,
 				ContentType: 'image/jpeg',
 				CacheControl: 'public, max-age=31536000'
 			}))
@@ -277,7 +288,7 @@ const CONFIG = {
 		uploadPromises.push(
 			s3Client.send(new PutObjectCommand({
 				Bucket: targetBucket,
-				Key: `${CONFIG.PROCESSED_PREFIX}${baseName}.json`,
+				Key: `${photoFolder}${baseName}.json`,
 				Body: JSON.stringify(metadata, null, 2),
 				ContentType: 'application/json',
 				CacheControl: 'public, max-age=3600' // 1 hour cache for metadata
@@ -287,8 +298,26 @@ const CONFIG = {
 		// Wait for all uploads to complete
 		await Promise.all(uploadPromises);
 		const uploadTime = Date.now() - uploadStart;
-		const totalTime = Date.now() - startTime;
 		console.info(`All files uploaded successfully in ${uploadTime}ms`);
+
+		// Delete original file if configured to do so
+		if (CONFIG.DELETE_ORIGINAL) {
+			console.info(`Deleting original file: ${key}`);
+			try {
+				await s3Client.send(new DeleteObjectCommand({
+					Bucket: sourceBucket,
+					Key: key
+				}));
+				console.info(`✅ Original file deleted: ${key}`);
+			} catch (deleteError) {
+				console.warn(`⚠️ Failed to delete original file: ${deleteError.message}`);
+				// Don't fail the entire operation if delete fails
+			}
+		} else {
+			console.info(`ℹ️ Keeping original file (DELETE_ORIGINAL=false)`);
+		}
+
+		const totalTime = Date.now() - startTime;
 		console.info(`Total processing time: ${totalTime}ms (Download: ${downloadTime}ms, Processing: ${processingTime}ms, Upload: ${uploadTime}ms)`);
 
 		return {
