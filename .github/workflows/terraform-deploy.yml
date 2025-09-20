@@ -161,7 +161,10 @@ jobs:
 
       - name: Initialize Terraform
         working-directory: terraform
-        run: terraform init
+        run: |
+          # Clean any cached provider information to avoid stale Docker provider references
+          rm -rf .terraform .terraform.lock.hcl
+          terraform init
 
       - name: Select or create Terraform workspace
         working-directory: terraform
@@ -284,7 +287,10 @@ jobs:
 
       - name: Initialize Terraform
         working-directory: terraform
-        run: terraform init
+        run: |
+          # Clean any cached provider information to avoid stale Docker provider references
+          rm -rf .terraform .terraform.lock.hcl
+          terraform init
 
       - name: Select Terraform workspace
         working-directory: terraform
@@ -371,7 +377,10 @@ jobs:
 
       - name: Initialize Terraform
         working-directory: terraform
-        run: terraform init
+        run: |
+          # Clean any cached provider information
+          rm -rf .terraform .terraform.lock.hcl
+          terraform init
 
       - name: Select Terraform workspace
         working-directory: terraform
