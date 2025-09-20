@@ -150,14 +150,14 @@ jobs:
       - name: Load Docker image
         run: docker load --input /tmp/photo3s-lambda.tar
 
+      - name: Get AWS Account ID
+        id: aws-account
+        run: echo "account-id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
           docker login --username AWS --password-stdin ${{ steps.aws-account.outputs.account-id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-
-      - name: Get AWS Account ID
-        id: aws-account
-        run: echo "account-id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
 
       - name: Initialize Terraform
         working-directory: terraform
