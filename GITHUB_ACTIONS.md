@@ -1,23 +1,118 @@
-# GitHub Actions Setup for Lambda Deployment
+# GitHub Actions CI/CD Setup Guide
 
-This document explains how to configure GitHub secrets for automatic Lambda deployment. The workflow deploys the Lambda function and automatically creates the required IAM role if it doesn't exist.
+This guide explains how to set up CI/CD for your photo processing infrastructure using GitHub Actions with Terraform.
 
-## Required GitHub Secrets
+## 🔄 **How the CI/CD Works**
 
-Go to your repository → Settings → Secrets and variables → Actions → New repository secret
+### **Workflow Triggers**
+- **Push to `main`** → Deploys to production
+- **Push to other branches** → Deploys to dev environment  
+- **Pull Requests** → Plans changes (doesn't deploy)
+- **Manual trigger** → Choose environment and action
 
-### 1. AWS Credentials (Required)
+### **Pipeline Stages**
+
+```mermaid
+graph TD
+    A[Code Push] --> B[Test Lambda Code]
+    B --> C[Build Docker Image]
+    C --> D[Terraform Plan]
+    D --> E{Is Main Branch?}
+    E -->|Yes| F[Deploy to Production]
+    E -->|No| G[Deploy to Dev]
+    F --> H[Run Smoke Tests]
+    G --> H
+    H --> I[Update GitHub Environment]
 ```
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
+
+## 🛠 **Setup Steps**
+
+### **1. Configure GitHub Secrets**
+
+Go to your repository → Settings → Secrets and variables → Actions
+
+**Required Secrets:**
+```
+AWS_ACCESS_KEY_ID     = your-aws-access-key
+AWS_SECRET_ACCESS_KEY = your-aws-secret-key
 ```
 
-**How to get these:**
-1. Go to AWS Console → IAM → Users → Your User → Security credentials
-2. Create access key for CLI/API use
-3. **Important**: User needs IAM permissions to create roles and Lambda functions
+**Optional Variables:**
+```
+AWS_REGION = us-east-1  (default)
+```
 
-### 2. Optional Configuration
+### **2. Create GitHub Environments**
+
+Go to Settings → Environments and create:
+
+- **`dev`** - Development environment (auto-deploy)
+- **`staging`** - Staging environment (manual approval)  
+- **`prod`** - Production environment (manual approval + branch protection)
+- **`dev-destroy`** - For manual infrastructure destruction
+- **`prod-destroy`** - For manual infrastructure destruction
+
+**Environment Settings:**
+- **Protection rules**: Require manual approval for prod
+- **Environment secrets**: Environment-specific overrides if needed
+- **Reviewers**: Add team members who can approve deployments
+
+### **3. Configure Branch Protection (Recommended)**
+
+Settings → Branches → Add rule for `main`:
+- ✅ Require pull request reviews
+- ✅ Require status checks (select the test job)
+- ✅ Require branches to be up to date
+- ✅ Include administrators
+
+## 🚀 **Usage Examples**
+
+### **Development Workflow**
+```bash
+# 1. Create feature branch
+git checkout -b feature/new-enhancement
+
+# 2. Make changes to Lambda or Terraform
+vim upload-lambda.js
+vim terraform/dev.tfvars
+
+# 3. Commit and push
+git add .
+git commit -m "Add new enhancement"
+git push origin feature/new-enhancement
+
+# 4. GitHub Actions automatically:
+#    - Tests your code
+#    - Builds Docker image  
+#    - Deploys to DEV environment
+```
+
+### **Production Deployment**
+```bash
+# 1. Create PR to main
+gh pr create --title "Deploy new enhancement" --body "Ready for production"
+
+# 2. GitHub Actions runs plan and comments on PR
+
+# 3. After review and approval, merge PR
+gh pr merge --squash
+
+# 4. GitHub Actions automatically:
+#    - Deploys to PRODUCTION
+#    - Requires manual approval (if configured)
+#    - Runs smoke tests
+```
+
+### **Manual Operations**
+```bash
+# Manual deployment via GitHub UI:
+# 1. Go to Actions tab
+# 2. Select "Deploy Photo3s Infrastructure"
+# 3. Click "Run workflow"
+# 4. Choose:
+#    - Environment: dev/staging/prod
+#    - Action: plan/apply/destroy
+```
 ```
 AWS_REGION (defaults to us-east-1)
 LAMBDA_FUNCTION_NAME (defaults to phot3s-upload-lambda)

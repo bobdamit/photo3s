@@ -4,9 +4,7 @@
   "description": "AWS Lambda function to process photo uploads - creates multiple sizes and extracts metadata",
   "main": "upload-lambda.js",
   "scripts": {
-    "test": "echo \"✅ No tests defined yet - syntax validation passed\"",
-    "zip": "zip -r photo-lambda.zip upload-lambda.js node_modules/",
-    "deploy": "aws lambda update-function-code --function-name photo-processor --zip-file fileb://photo-lambda.zip"
+    "test": "echo \"✅ No tests defined yet - syntax validation passed\""
   },
   "keywords": [
     "aws",

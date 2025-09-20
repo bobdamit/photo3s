@@ -1,0 +1,18 @@
+# Docker ignore file for Lambda container
+node_modules/
+.git/
+.github/
+*.md
+*.sh
+.env
+.env.*
+test-*
+deploy-*
+s3-policy.json
+.gitignore
+.dockerignore
+Dockerfile*
+terraform/
+*.tf
+*.tfvars
+.terraform/

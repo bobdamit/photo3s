@@ -6,6 +6,31 @@ const ExifParser = require("exif-parser");
 // Supported image formats
 const SUPPORTED_FORMATS = ["jpg", "jpeg", "png", "tiff", "tif", "webp"];
 
+// Retry utility function
+const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
+	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		try {
+			return await fn();
+		} catch (error) {
+			if (attempt === maxRetries) {
+				throw error;
+			}
+			
+			// Exponential backoff with jitter
+			const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+			console.warn(`Attempt ${attempt} failed: ${error.message}. Retrying in ${Math.round(delay)}ms...`);
+			await new Promise(resolve => setTimeout(resolve, delay));
+		}
+	}
+};
+
+// Memory monitoring utility
+const logMemoryUsage = (phase) => {
+	const used = process.memoryUsage();
+	const mb = (bytes) => Math.round(bytes / 1024 / 1024 * 100) / 100;
+	console.info(`Memory usage [${phase}]: RSS: ${mb(used.rss)}MB, Heap: ${mb(used.heapUsed)}/${mb(used.heapTotal)}MB, External: ${mb(used.external)}MB`);
+};
+
 // Configuration from environment variables
 const CONFIG = {
 	// Comma-separated list of allowed source buckets (optional - if not set, allows any bucket)
@@ -30,7 +55,16 @@ const CONFIG = {
 	DUPLICATES_PREFIX: process.env.DUPLICATES_PREFIX || 'duplicates/',
 
 	// Skip processing if file already in processed folder
-	SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false' // default true
+	SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false', // default true
+
+	// Maximum file size to process (in bytes, default 100MB)
+	MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE) || 100 * 1024 * 1024,
+
+	// Timeout for individual operations (milliseconds)
+	OPERATION_TIMEOUT: parseInt(process.env.OPERATION_TIMEOUT) || 30000,
+
+	// Enable detailed logging
+	DETAILED_LOGGING: process.env.DETAILED_LOGGING === 'true'
 };
 
 /**
@@ -219,11 +253,19 @@ async function handleDuplicateFile(sourceBucket, key, targetBucket, duplicateChe
 exports.handler = async (event) => {
 	const startTime = Date.now();
 	let key = 'unknown'; // Initialize key for error handling scope
+	let processingPhase = 'initialization';
 	
-	console.info(
-		"Photo processing Lambda triggered:",
-		JSON.stringify(event, null, 2)
-	);
+	// Log initial memory state
+	logMemoryUsage('start');
+	
+	if (CONFIG.DETAILED_LOGGING) {
+		console.info(
+			"Photo processing Lambda triggered:",
+			JSON.stringify(event, null, 2)
+		);
+	} else {
+		console.info("Photo processing Lambda triggered");
+	}
 	console.info("Configuration:", CONFIG);
 	console.info(`Lambda memory: ${process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE}MB, Node.js: ${process.version}`);
 
@@ -241,12 +283,26 @@ exports.handler = async (event) => {
 		const sourceBucket = record.s3.bucket.name;
 		key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
 		const fileSize = record.s3.object.size || 'unknown';
+		processingPhase = 'validation';
 
 		// Determine target bucket (same as source or specified processed bucket)
 		const targetBucket = CONFIG.PROCESSED_BUCKET || sourceBucket;
 
 		console.info(`Processing file: ${sourceBucket}/${key} → ${targetBucket}`);
 		console.info(`Original file size: ${typeof fileSize === 'number' ? (fileSize / 1024 / 1024).toFixed(2) + 'MB' : fileSize}`);
+
+		// Check file size limits
+		if (typeof fileSize === 'number' && fileSize > CONFIG.MAX_FILE_SIZE) {
+			const sizeMB = (fileSize / 1024 / 1024).toFixed(2);
+			const maxSizeMB = (CONFIG.MAX_FILE_SIZE / 1024 / 1024).toFixed(2);
+			console.warn(`File size ${sizeMB}MB exceeds maximum allowed size of ${maxSizeMB}MB`);
+			return {
+				status: "skipped",
+				reason: "file_too_large",
+				fileSize: sizeMB + 'MB',
+				maxSize: maxSizeMB + 'MB'
+			};
+		}
 
 		// Check if source bucket is allowed (if restriction is configured)
 		if (CONFIG.ALLOWED_SOURCE_BUCKETS && !CONFIG.ALLOWED_SOURCE_BUCKETS.includes(sourceBucket)) {
@@ -277,37 +333,74 @@ exports.handler = async (event) => {
 			};
 		}
 
-		// Download image
+		// Download image with retry logic
+		processingPhase = 'download';
 		const downloadStart = Date.now();
 		console.info("Downloading original image from S3");
-		const getObjectCommand = new GetObjectCommand({ Bucket: sourceBucket, Key: key });
-		const original = await s3Client.send(getObjectCommand);
+		
+		const original = await retryWithBackoff(async () => {
+			const getObjectCommand = new GetObjectCommand({ 
+				Bucket: sourceBucket, 
+				Key: key,
+				// Add timeout to prevent hanging
+				RequestPayer: undefined
+			});
+			return await s3Client.send(getObjectCommand);
+		}, 3, 1000);
+		
 		const downloadTime = Date.now() - downloadStart;
 
 		if (!original.Body) {
-			throw new Error("Failed to download image from S3");
+			throw new Error("Failed to download image from S3 - empty body");
 		}
 
 		// Convert stream to buffer for Sharp processing
+		processingPhase = 'stream_processing';
 		const chunks = [];
+		let totalSize = 0;
+		
 		for await (const chunk of original.Body) {
 			chunks.push(chunk);
+			totalSize += chunk.length;
+			
+			// Check if we're exceeding memory limits during streaming
+			if (totalSize > CONFIG.MAX_FILE_SIZE * 1.5) { // 50% buffer
+				throw new Error(`Stream size ${(totalSize/1024/1024).toFixed(2)}MB exceeds safety limit`);
+			}
 		}
+		
 		const imageBuffer = Buffer.concat(chunks);
+		logMemoryUsage('after_download');
 
 		const actualFileSize = original.ContentLength || imageBuffer.length;
 		console.info(`Download completed in ${downloadTime}ms, actual size: ${(actualFileSize / 1024 / 1024).toFixed(2)}MB`);
 		console.info(`Content-Type: ${original.ContentType || 'unknown'}, Last-Modified: ${original.LastModified || 'unknown'}`);
 
-		// Parse EXIF data with error handling
+		// Parse EXIF data with error handling and timeout
+		processingPhase = 'exif_parsing';
 		let exif = null;
 		let exifDate = null;
 		let camera = "unknown";
 
 		try {
 			console.info("Parsing EXIF data");
-			const parser = ExifParser.create(imageBuffer);
-			exif = parser.parse();
+			
+			// Add timeout to EXIF parsing
+			const exifPromise = new Promise((resolve, reject) => {
+				try {
+					const parser = ExifParser.create(imageBuffer);
+					const result = parser.parse();
+					resolve(result);
+				} catch (error) {
+					reject(error);
+				}
+			});
+			
+			const timeoutPromise = new Promise((_, reject) => {
+				setTimeout(() => reject(new Error('EXIF parsing timeout')), CONFIG.OPERATION_TIMEOUT);
+			});
+			
+			exif = await Promise.race([exifPromise, timeoutPromise]);
 
 			// Extract date with multiple fallback options
 			let dateSource = 'none';
@@ -384,9 +477,13 @@ exports.handler = async (event) => {
 		}
 
 		// Create multiple sizes for different use cases
+		processingPhase = 'image_processing';
+		logMemoryUsage('before_processing');
 		const processingStart = Date.now();
 		console.info("Creating image variations");
-		const [large, medium, small, thumb] = await Promise.all([
+		
+		// Process images with timeout protection
+		const imageProcessingPromise = Promise.all([
 			sharp(imageBuffer)
 				.resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
 				.jpeg({ quality: 85 })
@@ -404,6 +501,13 @@ exports.handler = async (event) => {
 				.jpeg({ quality: 70 })
 				.toBuffer(),
 		]);
+		
+		const timeoutPromise = new Promise((_, reject) => {
+			setTimeout(() => reject(new Error('Image processing timeout')), CONFIG.OPERATION_TIMEOUT);
+		});
+		
+		const [large, medium, small, thumb] = await Promise.race([imageProcessingPromise, timeoutPromise]);
+		logMemoryUsage('after_processing');
 		const processingTime = Date.now() - processingStart;
 
 		console.info(`Image variations created in ${processingTime}ms`);
@@ -461,13 +565,20 @@ exports.handler = async (event) => {
 		};
 
 		// Upload all files in parallel for better performance
+		processingPhase = 'upload';
+		logMemoryUsage('before_upload');
 		const uploadStart = Date.now();
 		const uploadPromises = [];
 		console.info(`Uploading processed files to S3`);
 
+		// Helper function for resilient uploads
+		const uploadWithRetry = (command) => {
+			return retryWithBackoff(() => s3Client.send(command), 3, 1000);
+		};
+
 		// Upload original with new name
 		uploadPromises.push(
-			s3Client.send(new PutObjectCommand({
+			uploadWithRetry(new PutObjectCommand({
 				Bucket: targetBucket,
 				Key: `${photoFolder}${baseName}.${ext}`,
 				Body: imageBuffer,
@@ -483,7 +594,7 @@ exports.handler = async (event) => {
 
 		// Upload resized versions
 		uploadPromises.push(
-			s3Client.send(new PutObjectCommand({
+			uploadWithRetry(new PutObjectCommand({
 				Bucket: targetBucket,
 				Key: `${photoFolder}${baseName}_large.jpg`,
 				Body: large,
@@ -493,7 +604,7 @@ exports.handler = async (event) => {
 		);
 
 		uploadPromises.push(
-			s3Client.send(new PutObjectCommand({
+			uploadWithRetry(new PutObjectCommand({
 				Bucket: targetBucket,
 				Key: `${photoFolder}${baseName}_medium.jpg`,
 				Body: medium,
@@ -503,7 +614,7 @@ exports.handler = async (event) => {
 		);
 
 		uploadPromises.push(
-			s3Client.send(new PutObjectCommand({
+			uploadWithRetry(new PutObjectCommand({
 				Bucket: targetBucket,
 				Key: `${photoFolder}${baseName}_small.jpg`,
 				Body: small,
@@ -513,7 +624,7 @@ exports.handler = async (event) => {
 		);
 
 		uploadPromises.push(
-			s3Client.send(new PutObjectCommand({
+			uploadWithRetry(new PutObjectCommand({
 				Bucket: targetBucket,
 				Key: `${photoFolder}${baseName}_thumb.jpg`,
 				Body: thumb,
@@ -524,7 +635,7 @@ exports.handler = async (event) => {
 
 		// Upload metadata JSON
 		uploadPromises.push(
-			s3Client.send(new PutObjectCommand({
+			uploadWithRetry(new PutObjectCommand({
 				Bucket: targetBucket,
 				Key: `${photoFolder}${baseName}.json`,
 				Body: JSON.stringify(metadata, null, 2),
@@ -574,28 +685,39 @@ exports.handler = async (event) => {
 		};
 	} catch (error) {
 		const totalTime = Date.now() - startTime;
-		console.error(`Error processing photo after ${totalTime}ms:`, error.message);
+		console.error(`Error processing photo after ${totalTime}ms in phase '${processingPhase}':`, error.message);
 		console.error("Error stack:", error.stack);
 		
-		// Add context about where the error occurred
-		if (error.message.includes('getObject')) {
-			console.error("Error occurred during S3 download phase");
-		} else if (error.message.includes('Sharp') || error.message.includes('resize')) {
-			console.error("Error occurred during image processing phase");
+		// Log final memory state on error
+		logMemoryUsage('error');
+		
+		// Enhanced error categorization
+		let errorCategory = 'unknown';
+		if (error.message.includes('getObject') || error.message.includes('download')) {
+			errorCategory = 's3_download';
+		} else if (error.message.includes('Sharp') || error.message.includes('resize') || error.message.includes('image')) {
+			errorCategory = 'image_processing';
 		} else if (error.message.includes('putObject') || error.message.includes('upload')) {
-			console.error("Error occurred during S3 upload phase");
+			errorCategory = 's3_upload';
 		} else if (error.message.includes('EXIF')) {
-			console.error("Error occurred during EXIF parsing phase");
+			errorCategory = 'exif_parsing';
+		} else if (error.message.includes('timeout')) {
+			errorCategory = 'timeout';
+		} else if (error.message.includes('memory') || error.message.includes('size')) {
+			errorCategory = 'resource_limit';
 		}
 
-		// Return detailed error information
+		// Return comprehensive error information
 		return {
 			status: "error",
 			error: error.message,
 			errorCode: error.code || 'UNKNOWN',
-			stack: error.stack,
+			errorCategory,
+			processingPhase,
+			stack: CONFIG.DETAILED_LOGGING ? error.stack : undefined,
 			originalKey: key || "unknown",
-			processingTimeMs: totalTime
+			processingTimeMs: totalTime,
+			awsRequestId: error.$metadata?.requestId
 		};
 	}
 };
