@@ -213,30 +213,13 @@ resource "aws_ecr_lifecycle_policy" "lambda_repo" {
 }
 
 #===============================================================================
-# Docker Image Build and Push
+# ECR Image Reference
 #===============================================================================
 
-resource "docker_image" "lambda_image" {
-  name = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
-  
-  build {
-    context    = "${path.module}/.."
-    dockerfile = "Dockerfile"
-    
-    tag = ["${aws_ecr_repository.lambda_repo.repository_url}:latest"]
-  }
-  
-  triggers = {
-    lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
-    package_hash     = filemd5("${path.module}/../package.json")
-    dockerfile_hash  = filemd5("${path.module}/../Dockerfile")
-  }
-}
-
-resource "docker_registry_image" "lambda_image" {
-  name = docker_image.lambda_image.name
-  
-  triggers = docker_image.lambda_image.triggers
+# This assumes the Docker image is built and pushed by GitHub Actions
+# We reference the image using the "latest" tag
+locals {
+  lambda_image_uri = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
 }
 
 #===============================================================================
@@ -349,7 +332,7 @@ resource "aws_lambda_function" "photo_processor" {
   
   # Container image configuration
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}@${docker_registry_image.lambda_image.sha256_digest}"
+  image_uri    = local.lambda_image_uri
   
   # Function configuration
   memory_size = var.lambda_memory

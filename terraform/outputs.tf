@@ -13,6 +13,11 @@ output "ecr_repository_url" {
   value       = aws_ecr_repository.lambda_repo.repository_url
 }
 
+output "ecr_repository_name" {
+  description = "ECR repository name for Lambda container"
+  value       = aws_ecr_repository.lambda_repo.name
+}
+
 output "bucket_pairs" {
   description = "Map of bucket pairs (root_name -> {ingress, processed})"
   value       = local.bucket_pairs
