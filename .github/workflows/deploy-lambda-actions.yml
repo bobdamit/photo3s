@@ -16,6 +16,7 @@ env:
   PROCESSED_BUCKET: ${{ vars.PROCESSED_BUCKET }}
   PROCESSED_PREFIX: ${{ vars.PROCESSED_PREFIX || 'processed/' }}
   DELETE_ORIGINAL: ${{ vars.DELETE_ORIGINAL || 'true' }}
+  CHECK_DUPLICATES: ${{ vars.CHECK_DUPLICATES || 'true' }}
 
 jobs:
   test:
@@ -87,6 +88,7 @@ jobs:
         ENV_VARS="${ENV_VARS}                  SKIP_PROCESSED_FOLDER: \"true\"\n"
         ENV_VARS="${ENV_VARS}                  PROCESSED_PREFIX: \"${{ env.PROCESSED_PREFIX }}\"\n"
         ENV_VARS="${ENV_VARS}                  DELETE_ORIGINAL: \"${{ env.DELETE_ORIGINAL }}\"\n"
+        ENV_VARS="${ENV_VARS}                  CHECK_DUPLICATES: \"${{ env.CHECK_DUPLICATES }}\"\n"
         
         # Only include optional variables if they're not empty
         if [ -n "${{ env.ALLOWED_SOURCE_BUCKETS }}" ]; then

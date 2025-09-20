@@ -1,4 +1,4 @@
-const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require("@aws-sdk/client-s3");
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 const sharp = require("sharp");
 const ExifParser = require("exif-parser");
@@ -20,11 +20,132 @@ const CONFIG = {
 	// Whether to delete original file after processing
 	DELETE_ORIGINAL: process.env.DELETE_ORIGINAL !== 'false',
 
+	// Whether to check for duplicates before processing
+	CHECK_DUPLICATES: process.env.CHECK_DUPLICATES !== 'false', // default true
+
 	// Skip processing if file already in processed folder
 	SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false' // default true
 };
 
-	exports.handler = async (event) => {
+/**
+ * Check for potential duplicates by searching existing processed files
+ * Uses date-based prefix searching for efficiency
+ */
+async function checkForDuplicates(targetBucket, shotDate, camera, fileSize, exif, processedPrefix) {
+	try {
+		const dateStr = shotDate.toISOString().split('T')[0]; // YYYY-MM-DD
+		const searchPrefix = `${processedPrefix}photo-${dateStr.replace(/[:.]/g, "-")}`;
+		
+		console.info(`Searching for duplicates with prefix: ${searchPrefix}`);
+		
+		// List objects with date-based prefix to narrow search
+		const listCommand = new ListObjectsV2Command({
+			Bucket: targetBucket,
+			Prefix: searchPrefix,
+			MaxKeys: 100 // Reasonable limit for same-day photos
+		});
+		
+		const response = await s3Client.send(listCommand);
+		
+		if (!response.Contents || response.Contents.length === 0) {
+			return { isDuplicate: false, filesChecked: 0 };
+		}
+		
+		console.info(`Found ${response.Contents.length} existing files from same date`);
+		
+		// Look for JSON metadata files to compare
+		const jsonFiles = response.Contents.filter(obj => obj.Key.endsWith('.json'));
+		
+		for (const jsonFile of jsonFiles) {
+			try {
+				// Download and parse the metadata
+				const metadataCommand = new GetObjectCommand({
+					Bucket: targetBucket,
+					Key: jsonFile.Key
+				});
+				const metadataResponse = await s3Client.send(metadataCommand);
+				
+				const chunks = [];
+				for await (const chunk of metadataResponse.Body) {
+					chunks.push(chunk);
+				}
+				const metadataStr = Buffer.concat(chunks).toString();
+				const existingMetadata = JSON.parse(metadataStr);
+				
+				// Compare file size first (fastest check)
+				if (Math.abs(existingMetadata.fileSize - fileSize) < 1024) { // Within 1KB
+					console.info(`Size match found: ${existingMetadata.fileSize} vs ${fileSize}`);
+					
+					// Compare timestamps if both have EXIF data
+					if (exif && existingMetadata.exifData) {
+						const existingTimestamp = existingMetadata.exifData.dateTimeOriginal;
+						const currentTimestamp = exif.tags.DateTimeOriginal ? 
+							new Date(exif.tags.DateTimeOriginal * 1000).toISOString() : null;
+							
+						if (existingTimestamp && currentTimestamp && existingTimestamp === currentTimestamp) {
+							// Compare camera info
+							const existingCamera = existingMetadata.exifData.make || 'unknown';
+							const currentCamera = exif.tags.Make || 'unknown';
+							
+							if (existingCamera.toLowerCase() === currentCamera.toLowerCase()) {
+								// Compare dimensions if available
+								if (existingMetadata.originalDimensions && exif.imageSize) {
+									const widthMatch = existingMetadata.originalDimensions.width === exif.imageSize.width;
+									const heightMatch = existingMetadata.originalDimensions.height === exif.imageSize.height;
+									
+									if (widthMatch && heightMatch) {
+										return {
+											isDuplicate: true,
+											reason: "exact_match_exif_timestamp_camera_dimensions",
+											existingFile: jsonFile.Key.replace('.json', ''),
+											confidence: "high",
+											filesChecked: jsonFiles.length
+										};
+									}
+								}
+								
+								return {
+									isDuplicate: true,
+									reason: "exact_match_exif_timestamp_camera",
+									existingFile: jsonFile.Key.replace('.json', ''),
+									confidence: "high",
+									filesChecked: jsonFiles.length
+								};
+							}
+						}
+					}
+					
+					// If no EXIF comparison possible, use file size + camera as lower confidence match
+					if (existingMetadata.camera.toLowerCase() === camera.toLowerCase()) {
+						return {
+							isDuplicate: true,
+							reason: "size_camera_match_no_exif_comparison",
+							existingFile: jsonFile.Key.replace('.json', ''),
+							confidence: "medium",
+							filesChecked: jsonFiles.length
+						};
+					}
+				}
+			} catch (parseError) {
+				console.warn(`Failed to parse metadata for ${jsonFile.Key}:`, parseError.message);
+				continue;
+			}
+		}
+		
+		return { 
+			isDuplicate: false, 
+			filesChecked: jsonFiles.length,
+			searchPrefix
+		};
+		
+	} catch (error) {
+		console.warn("Duplicate check failed:", error.message);
+		// Don't fail processing if duplicate check fails
+		return { isDuplicate: false, error: error.message, filesChecked: 0 };
+	}
+}
+
+exports.handler = async (event) => {
 	const startTime = Date.now();
 	let key = 'unknown'; // Initialize key for error handling scope
 	
@@ -145,6 +266,32 @@ const CONFIG = {
 		const baseName = `photo-${timestamp}-${camera.replace(/\s+/g, "_")}`;
 
 		console.info(`Generated base name: ${baseName}`);
+
+		// Check for duplicates if enabled
+		if (CONFIG.CHECK_DUPLICATES) {
+			console.info("Checking for potential duplicates");
+			const duplicateCheck = await checkForDuplicates(
+				targetBucket, 
+				shotDate, 
+				camera, 
+				actualFileSize,
+				exif,
+				CONFIG.PROCESSED_PREFIX
+			);
+			
+			if (duplicateCheck.isDuplicate) {
+				console.warn(`Potential duplicate found: ${duplicateCheck.reason}`);
+				console.warn(`Existing file: ${duplicateCheck.existingFile}`);
+				return {
+					status: "skipped",
+					reason: "duplicate_detected",
+					duplicateInfo: duplicateCheck,
+					originalKey: key
+				};
+			} else {
+				console.info(`No duplicates found (checked ${duplicateCheck.filesChecked} files)`);
+			}
+		}
 
 		// Create multiple sizes for different use cases
 		const processingStart = Date.now();
