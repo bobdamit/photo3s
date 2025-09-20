@@ -348,6 +348,36 @@ jobs:
         echo "Setting up multi-bucket configuration for flexible deployment..."
         echo ""
         
+        # Wait for function to be ready before attempting environment variable update
+        echo "⏳ Waiting for Lambda function to be ready for configuration updates..."
+        MAX_WAIT_ATTEMPTS=12
+        WAIT_ATTEMPT=1
+        
+        while [ $WAIT_ATTEMPT -le $MAX_WAIT_ATTEMPTS ]; do
+          FUNCTION_STATE=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.State' --output text 2>/dev/null || echo "Unknown")
+          echo "   Wait attempt $WAIT_ATTEMPT/$MAX_WAIT_ATTEMPTS - Function State: $FUNCTION_STATE"
+          
+          if [ "$FUNCTION_STATE" = "Active" ]; then
+            echo "   ✅ Function is ready for configuration updates"
+            break
+          elif [ "$FUNCTION_STATE" = "Failed" ]; then
+            echo "   ❌ Function is in Failed state - cannot proceed"
+            exit 1
+          else
+            if [ $WAIT_ATTEMPT -eq $MAX_WAIT_ATTEMPTS ]; then
+              echo "   ⚠️  Function is still not Active after 3 minutes"
+              echo "   Current state: $FUNCTION_STATE"
+              echo "   Proceeding anyway - the update may succeed"
+              break
+            fi
+            echo "   ⏳ State: $FUNCTION_STATE - waiting 15 seconds..."
+            sleep 15
+          fi
+          
+          WAIT_ATTEMPT=$((WAIT_ATTEMPT + 1))
+        done
+        echo ""
+        
         # Build environment variables JSON
         ENV_VARS="{"
         
@@ -389,11 +419,41 @@ jobs:
         CLI_JSON="{\"FunctionName\":\"${{ env.LAMBDA_FUNCTION_NAME }}\",\"Environment\":{\"Variables\":$ENV_VARS}}"
         echo "CLI JSON: $CLI_JSON"
         
-        # Write to temp file and use cli-input-json
+        # Write to temp file and use cli-input-json with retry logic
         echo "$CLI_JSON" > /tmp/lambda-update.json
         
-        aws lambda update-function-configuration \
-          --cli-input-json file:///tmp/lambda-update.json
+        # Retry logic for ResourceConflictException
+        MAX_RETRIES=5
+        RETRY_COUNT=0
+        RETRY_DELAY=10
+        
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Updating environment variables..."
+          
+          if aws lambda update-function-configuration --cli-input-json file:///tmp/lambda-update.json; then
+            echo "✅ Environment variables updated successfully"
+            break
+          else
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 254 ]; then
+              echo "⚠️  ResourceConflictException: Another update is in progress"
+              if [ $RETRY_COUNT -lt $((MAX_RETRIES - 1)) ]; then
+                echo "   Waiting ${RETRY_DELAY} seconds before retry..."
+                sleep $RETRY_DELAY
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                RETRY_DELAY=$((RETRY_DELAY + 5))  # Increase delay each retry
+              else
+                echo "❌ Max retries reached. The function may still be updating from a previous deployment."
+                echo "   This is often normal - the function should become available shortly."
+                echo "   You can check the function status in the AWS Console."
+                exit 1
+              fi
+            else
+              echo "❌ Failed with exit code $EXIT_CODE (not a ResourceConflictException)"
+              exit $EXIT_CODE
+            fi
+          fi
+        done
         
         echo "✅ Environment variables configured successfully"
         echo ""
