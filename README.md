@@ -44,7 +44,17 @@ processed/
    npm run zip
    ```
 
-## Deployment Steps
+## Deployment Options
+
+### Option 1: Automated Deployment with GitHub Actions (Recommended)
+
+For automatic deployment on every push to main branch:
+
+1. **Set up GitHub Secrets** - See [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md) for detailed setup
+2. **Push to main branch** - Deployment happens automatically
+3. **Monitor in Actions tab** - Watch the deployment progress
+
+### Option 2: Manual Deployment
 
 ### Step 1: Create the Lambda Function
 

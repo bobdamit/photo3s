@@ -6,11 +6,30 @@ const ExifParser = require("exif-parser");
 // Supported image formats
 const SUPPORTED_FORMATS = ["jpg", "jpeg", "png", "tiff", "tif", "webp"];
 
+// Configuration from environment variables
+const CONFIG = {
+  // Comma-separated list of allowed source buckets (optional - if not set, allows any bucket)
+  ALLOWED_SOURCE_BUCKETS: process.env.ALLOWED_SOURCE_BUCKETS?.split(',').map(b => b.trim()),
+  
+  // Target bucket for processed files (if different from source)
+  PROCESSED_BUCKET: process.env.PROCESSED_BUCKET || null, // null means use same bucket as source
+  
+  // Prefix for processed files
+  PROCESSED_PREFIX: process.env.PROCESSED_PREFIX || 'processed/',
+  
+  // Whether to delete original file after processing
+  DELETE_ORIGINAL: process.env.DELETE_ORIGINAL === 'true',
+  
+  // Skip processing if file already in processed folder
+  SKIP_PROCESSED_FOLDER: process.env.SKIP_PROCESSED_FOLDER !== 'false' // default true
+};
+
 exports.handler = async (event) => {
 	console.log(
 		"Photo processing Lambda triggered:",
 		JSON.stringify(event, null, 2)
 	);
+	console.log("Configuration:", CONFIG);
 
 	try {
 		// Validate event structure
@@ -23,13 +42,22 @@ exports.handler = async (event) => {
 			throw new Error("Invalid S3 record structure");
 		}
 
-		const bucket = record.s3.bucket.name;
+		const sourceBucket = record.s3.bucket.name;
 		const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
+		
+		// Determine target bucket (same as source or specified processed bucket)
+		const targetBucket = CONFIG.PROCESSED_BUCKET || sourceBucket;
 
-		console.log(`Processing file: ${bucket}/${key}`);
+		console.log(`Processing file: ${sourceBucket}/${key} → ${targetBucket}`);
+		
+		// Check if source bucket is allowed (if restriction is configured)
+		if (CONFIG.ALLOWED_SOURCE_BUCKETS && !CONFIG.ALLOWED_SOURCE_BUCKETS.includes(sourceBucket)) {
+			console.log(`Bucket ${sourceBucket} not in allowed list: ${CONFIG.ALLOWED_SOURCE_BUCKETS.join(', ')}`);
+			return { status: "skipped", reason: "bucket_not_allowed", bucket: sourceBucket };
+		}
 
 		// Check if file is already in processed folder to avoid infinite loops
-		if (key.startsWith("processed/")) {
+		if (CONFIG.SKIP_PROCESSED_FOLDER && key.startsWith(CONFIG.PROCESSED_PREFIX)) {
 			console.log("File already in processed folder, skipping");
 			return { status: "skipped", reason: "already_processed" };
 		}
@@ -47,7 +75,7 @@ exports.handler = async (event) => {
 
 		// Download image
 		console.log("Downloading original image from S3");
-		const original = await S3.getObject({ Bucket: bucket, Key: key }).promise();
+		const original = await S3.getObject({ Bucket: sourceBucket, Key: key }).promise();
 
 		if (!original.Body) {
 			throw new Error("Failed to download image from S3");

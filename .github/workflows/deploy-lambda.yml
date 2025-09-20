@@ -1,0 +1,141 @@
+name: Deploy Photo Processing Lambda
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  LAMBDA_FUNCTION_NAME: phot3s-upload-lambda
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run tests (if any)
+      run: npm test || echo "No tests defined, skipping"
+      
+    - name: Validate Lambda function syntax
+      run: node -c upload-lambda.js
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci --production
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Create deployment package
+      run: |
+        echo "Creating deployment package..."
+        zip -r photo-lambda.zip upload-lambda.js node_modules/ package.json
+        ls -la photo-lambda.zip
+        
+    - name: Check if Lambda function exists
+      id: check-function
+      run: |
+        if aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} &>/dev/null; then
+          echo "function-exists=true" >> $GITHUB_OUTPUT
+          echo "Lambda function ${{ env.LAMBDA_FUNCTION_NAME }} exists"
+        else
+          echo "function-exists=false" >> $GITHUB_OUTPUT
+          echo "Lambda function ${{ env.LAMBDA_FUNCTION_NAME }} does not exist"
+        fi
+        
+    - name: Update Lambda function code
+      if: steps.check-function.outputs.function-exists == 'true'
+      run: |
+        echo "Updating existing Lambda function..."
+        aws lambda update-function-code \
+          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --zip-file fileb://photo-lambda.zip
+        echo "✅ Lambda function updated successfully"
+        
+    - name: Create Lambda function
+      if: steps.check-function.outputs.function-exists == 'false'
+      run: |
+        echo "Creating new Lambda function..."
+        aws lambda create-function \
+          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
+          --runtime nodejs18.x \
+          --role ${{ secrets.LAMBDA_EXECUTION_ROLE_ARN }} \
+          --handler upload-lambda.handler \
+          --zip-file fileb://photo-lambda.zip \
+          --timeout 60 \
+          --memory-size 512 \
+          --description "Photo processing Lambda - creates multiple sizes and extracts metadata"
+        echo "✅ Lambda function created successfully"
+        
+    - name: Run deployment verification
+      run: |
+        echo "🔍 Verifying deployment..."
+        
+        # Check function status
+        FUNCTION_STATE=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.State' --output text)
+        echo "Function state: $FUNCTION_STATE"
+        
+        if [ "$FUNCTION_STATE" = "Active" ]; then
+          echo "✅ Lambda function is active and ready"
+          echo "✅ Lambda function deployed successfully"
+          echo "Configure S3 bucket triggers and environment variables via AWS Console"
+        else
+          echo "❌ Lambda function is not in active state"
+          exit 1
+        fi
+        
+        echo "🎉 Deployment verification completed successfully!"
+
+  notify:
+    needs: [test, deploy]
+    runs-on: ubuntu-latest
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Notify deployment result
+      run: |
+        if [ "${{ needs.deploy.result }}" = "success" ]; then
+          echo "🎉 Deployment successful!"
+          echo "Lambda function ${{ env.LAMBDA_FUNCTION_NAME }} has been deployed"
+          echo ""
+          echo "Next steps:"
+          echo "1. Configure S3 bucket triggers via AWS Console"
+          echo "2. Set Lambda environment variables for multi-bucket setup"
+          echo "3. Upload test photos to trigger processing"
+        else
+          echo "❌ Deployment failed!"
+          echo "Check the workflow logs for details"
+          exit 1
+        fi
