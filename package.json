@@ -31,5 +31,11 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "detectOpenHandles": false,
+    "forceExit": true,
+    "clearMocks": true
   }
 }

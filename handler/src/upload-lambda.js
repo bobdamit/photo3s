@@ -404,7 +404,11 @@ async function downloadImage(sourceBucket, key) {
 		return await s3Client.send(cmd);
 	}, 3, 1000);
 
-	if (!original.Body) throw new Error("Empty S3 body");
+	if (!original.Body) {
+		throw new Error("Empty S3 body");
+	}
+
+	console.info(`Body: ${JSON.stringify(original.Body)}, key: ${key}, Bucket: ${sourceBucket}`);
 
 	const chunks = [];
 	for await (const chunk of original.Body) chunks.push(chunk);
@@ -481,6 +485,7 @@ async function processImageVariants(imageBuffer) {
 async function buildMetadata({ key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket }) {
 	const imageMetadata = await sharp(imageBuffer).metadata();
 	const photoFolder = `${baseName}/`;
+	const originalFilename = key.split('/').pop(); // Extract just the filename from the full key path
 	return {
 		photoFolder : photoFolder,
 		originalKey: key,
@@ -492,11 +497,11 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 		exifData: exif ? { make: exif.tags.Make, model: exif.tags.Model } : null,
 		processedAt: new Date().toISOString(),
 		versions: {
-			original: buildPhotoPath(photoFolder, baseName, 'original'),
-			large: buildPhotoPath(photoFolder, baseName, 'large'),
-			medium: buildPhotoPath(photoFolder, baseName, 'medium'),
-			small: buildPhotoPath(photoFolder, baseName, 'small'),
-			thumb: buildPhotoPath(photoFolder, baseName, 'thumb'),
+			original: buildPhotoPath(photoFolder, originalFilename, 'original'),
+			large: buildPhotoPath(photoFolder, originalFilename, 'large'),
+			medium: buildPhotoPath(photoFolder, originalFilename, 'medium'),
+			small: buildPhotoPath(photoFolder, originalFilename, 'small'),
+			thumb: buildPhotoPath(photoFolder, originalFilename, 'thumb'),
 		}
 	};
 }
@@ -504,16 +509,17 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 async function uploadAllFiles({ imageBuffer, original, targetBucket, photoFolder, baseName, ext, large, medium, small, thumb, metadata, sourceBucket, key }) {
 	const start = Date.now();
 	const uploadWithRetry = (cmd) => retryWithBackoff(() => s3Client.send(cmd), 3, 1000);
+	const originalFilename = key.split('/').pop(); // Extract just the filename from the full key path
 
 	const uploads = [
 		uploadWithRetry(new PutObjectCommand({
-			Bucket: targetBucket, Key: `${photoFolder}${baseName}.${ext}`, Body: imageBuffer,
+			Bucket: targetBucket, Key: `${photoFolder}${originalFilename}`, Body: imageBuffer,
 			ContentType: original.ContentType
 		})),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, baseName, 'large'), Body: large, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, baseName, 'medium'), Body: medium, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, baseName, 'small'), Body: small, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, baseName, 'thumb'), Body: thumb, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'large'), Body: large, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'medium'), Body: medium, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'small'), Body: small, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'thumb'), Body: thumb, ContentType: 'image/jpeg' })),
 		uploadWithRetry(new PutObjectCommand({
 			Bucket: targetBucket, Key: `${photoFolder}${baseName}.json`, Body: JSON.stringify(metadata, null, 2),
 			ContentType: 'application/json'
@@ -525,19 +531,16 @@ async function uploadAllFiles({ imageBuffer, original, targetBucket, photoFolder
 	
 /**
  * Consistently build photo path for different sizes
- * @param  photoFolder 
- * @param {*} baseName 
- * @param {*} sizeLabel 
- * @returns 
+ * @param {string} photoFolder 
+ * @param {string} originalFilename - The actual original filename (e.g., DSC003344.JPG)
+ * @param {string} sizeLabel 
+ * @returns {string}
  */
-function buildPhotoPath(photoFolder, baseName, sizeLabel) {
-	console.info(`Building path for size '${sizeLabel}': baseName:${baseName} photoFolder:${photoFolder}`);
+function buildPhotoPath(photoFolder, originalFilename, sizeLabel) {
+	const fileName = sizeLabel === 'original' ? originalFilename : `${sizeLabel}.jpg`;
 
-	const sizeSuffix = sizeLabel === 'original' ? baseName : `_${sizeLabel}`;
-	const extension = sizeLabel === 'original' ? '' : '.jpg';
-
-	let path = `${photoFolder}${sizeSuffix}${extension}`;
-	console.log(`Built photo path: ${path}`);
+	let path = `${photoFolder}${fileName}`;
+	console.info(`Built photo path: ${path}`);
 	return path;
 }
 
