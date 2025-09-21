@@ -19,7 +19,7 @@ Automatically processes photos uploaded to S3 ingress buckets and delivers them 
 - **Amazon S3** - Paired bucket storage (ingress + processed) with event triggers  
 - **Amazon ECR** - Container registry (managed by CI/CD)
 - **Terraform** - Infrastructure as Code
-- **GitHub Actions** - Three-job CI/CD pipeline (build → container → infrastructure)
+- **GitHub Actions** - Four-job CI/CD pipeline (test → build → container → infrastructure)
 - **CloudWatch** - Logging and monitoring
 
 ## Paired Bucket System
@@ -51,7 +51,7 @@ https://photo3s-dev-sailing-processed.s3.amazonaws.com/photo-2024-09-19_14-30-25
 
 ## How to Deploy
 
-**Zero local setup required!** Everything runs through GitHub Actions with a three-job pipeline.
+**Zero local setup required!** Everything runs through GitHub Actions with a four-job pipeline.
 
 ### Prerequisites Setup
 
@@ -72,7 +72,7 @@ https://photo3s-dev-sailing-processed.s3.amazonaws.com/photo-2024-09-19_14-30-25
    ```
 
 3. **Deploy via GitHub Actions**:
-   - **Push to `modernize-cicd`** → deploys with three-job pipeline:
+   - **Push to `modernize-cicd`** → deploys with four-job pipeline:
      1. **Build Job** → Tests and builds Lambda code  
      2. **Deploy Container** → Creates ECR repo, builds and pushes Docker image
      3. **Deploy Infrastructure** → Applies Terraform with pre-built image
@@ -104,7 +104,7 @@ This architectural separation ensures:
 │   ├── variables.tf          # Terraform input variables
 │   ├── outputs.tf            # Terraform outputs
 │   └── versions.tf           # S3 backend configuration
-├── .github/workflows/        # Three-job CI/CD pipeline
+├── .github/workflows/        # Four-job CI/CD pipeline
 │   └── build-and-deploy.yml  # Build → Container → Infrastructure jobs
 ├── cleanup-aws-resources.sh  # Resource cleanup utility
 ├── create-terraform-state-bucket.sh  # S3 backend setup
@@ -136,7 +136,7 @@ This architectural separation ensures:
 ## Documentation
 
 - **[QUICK_START.md](QUICK_START.md)** - Get up and running in 10 minutes
-- **[GITHUB_ACTIONS.md](GITHUB_ACTIONS.md)** - Three-job CI/CD pipeline details  
+- **[GITHUB_ACTIONS.md](GITHUB_ACTIONS.md)** - Four-job CI/CD pipeline details  
 - **[PIPELINE_ARCHITECTURE.md](PIPELINE_ARCHITECTURE.md)** - Build → Container → Infrastructure workflow
 - **[TERRAFORM.md](TERRAFORM.md)** - Infrastructure architecture and paired bucket design
 
@@ -169,7 +169,7 @@ delete_original = false               # Keep originals in ingress buckets
 
 After deployment, monitor your system through:
 
-- **GitHub Actions** - Pipeline status, three-job execution logs
+- **GitHub Actions** - Pipeline status, four-job execution logs
 - **AWS CloudWatch** - Lambda execution logs, error tracking, performance metrics  
 - **AWS Console** - S3 bucket contents, processed file organization
 - **ECR Console** - Container image versions and deployment history
@@ -185,7 +185,7 @@ The system supports complete clean deployment from scratch:
 ## Contributing
 
 1. Create feature branch from `modernize-cicd`
-2. Test changes with three-job pipeline
+2. Test changes with four-job pipeline
 3. Deploy to production environment as needed
 
 ---
