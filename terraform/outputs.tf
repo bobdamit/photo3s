@@ -9,13 +9,13 @@ output "lambda_function_arn" {
 }
 
 output "ecr_repository_url" {
-  description = "ECR repository URL for Lambda container"
-  value       = aws_ecr_repository.lambda_repo.repository_url
+  description = "ECR repository URL for Lambda container (managed by CI/CD)"
+  value       = data.aws_ecr_repository.lambda_repo.repository_url
 }
 
 output "ecr_repository_name" {
-  description = "ECR repository name for Lambda container"
-  value       = aws_ecr_repository.lambda_repo.name
+  description = "ECR repository name for Lambda container (managed by CI/CD)"
+  value       = data.aws_ecr_repository.lambda_repo.name
 }
 
 output "bucket_pairs" {
