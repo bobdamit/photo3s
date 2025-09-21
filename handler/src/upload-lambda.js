@@ -466,10 +466,11 @@ async function handleDuplicatesIfNeeded(sourceBucket, key, targetBucket, isUsing
 async function processImageVariants(imageBuffer) {
 	const start = Date.now();
 	const tasks = [
-		sharp(imageBuffer).resize(1920, 1920, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer(),
-		sharp(imageBuffer).resize(1200, 1200, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
-		sharp(imageBuffer).resize(450, 450, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer(),
-		sharp(imageBuffer).resize(200, 200, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer()
+		// WebP provides better compression than JPEG with similar quality
+		sharp(imageBuffer).resize(1920, 1920, { fit: "inside", withoutEnlargement: true }).webp({ quality: 85, effort: 4 }).toBuffer(),
+		sharp(imageBuffer).resize(1200, 1200, { fit: "inside", withoutEnlargement: true }).webp({ quality: 80, effort: 4 }).toBuffer(),
+		sharp(imageBuffer).resize(450, 450, { fit: "inside", withoutEnlargement: true }).webp({ quality: 75, effort: 4 }).toBuffer(),
+		sharp(imageBuffer).resize(200, 200, { fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer()
 	];
 	const timeout = new Promise((_, reject) =>
 		setTimeout(() => reject(new Error('Image processing timeout')), CONFIG.OPERATION_TIMEOUT)
@@ -518,10 +519,10 @@ async function uploadAllFiles(
 			Bucket: targetBucket, Key: `${photoFolder}${originalFilename}`, Body: imageBuffer,
 			ContentType: original.ContentType
 		})),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'large'), Body: large, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'medium'), Body: medium, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'small'), Body: small, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'thumb'), Body: thumb, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'large'), Body: large, ContentType: 'image/webp' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'medium'), Body: medium, ContentType: 'image/webp' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'small'), Body: small, ContentType: 'image/webp' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'thumb'), Body: thumb, ContentType: 'image/webp' })),
 		uploadWithRetry(new PutObjectCommand({
 			Bucket: targetBucket, Key: `${photoFolder}metadata.json`, Body: JSON.stringify(metadata, null, 2),
 			ContentType: 'application/json'
@@ -539,7 +540,7 @@ async function uploadAllFiles(
  * @returns {string}
  */
 function buildPhotoPath(photoFolder, originalFilename, sizeLabel) {
-	const fileName = sizeLabel === 'original' ? originalFilename : `${sizeLabel}.jpg`;
+	const fileName = sizeLabel === 'original' ? originalFilename : `${sizeLabel}.webp`;
 
 	let path = `${photoFolder}${fileName}`;
 	console.info(`Built photo path: ${path}`);

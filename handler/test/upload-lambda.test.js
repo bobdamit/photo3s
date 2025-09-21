@@ -100,10 +100,10 @@ describe('Lambda handler', () => {
 
     // Find each expected file type
     const originalFile = putObjectCalls.find(call => call.key === `${photoFolder}${originalFilename}`);
-    const largeFile = putObjectCalls.find(call => call.key === `${photoFolder}large.jpg`);
-    const mediumFile = putObjectCalls.find(call => call.key === `${photoFolder}medium.jpg`);
-    const smallFile = putObjectCalls.find(call => call.key === `${photoFolder}small.jpg`);
-    const thumbFile = putObjectCalls.find(call => call.key === `${photoFolder}thumb.jpg`);
+    const largeFile = putObjectCalls.find(call => call.key === `${photoFolder}large.webp`);
+    const mediumFile = putObjectCalls.find(call => call.key === `${photoFolder}medium.webp`);
+    const smallFile = putObjectCalls.find(call => call.key === `${photoFolder}small.webp`);
+    const thumbFile = putObjectCalls.find(call => call.key === `${photoFolder}thumb.webp`);
     const metadataFile = putObjectCalls.find(call => call.key.endsWith('.json'));
 
     // Verify original file preserves exact filename
@@ -111,22 +111,22 @@ describe('Lambda handler', () => {
     expect(originalFile.key).toBe(`${photoFolder}${originalFilename}`);
     expect(originalFile.contentType).toBe('image/jpeg');
 
-    // Verify processed versions use simple names
+    // Verify processed versions use WebP format
     expect(largeFile).toBeDefined();
-    expect(largeFile.key).toBe(`${photoFolder}large.jpg`);
-    expect(largeFile.contentType).toBe('image/jpeg');
+    expect(largeFile.key).toBe(`${photoFolder}large.webp`);
+    expect(largeFile.contentType).toBe('image/webp');
 
     expect(mediumFile).toBeDefined();
-    expect(mediumFile.key).toBe(`${photoFolder}medium.jpg`);
-    expect(mediumFile.contentType).toBe('image/jpeg');
+    expect(mediumFile.key).toBe(`${photoFolder}medium.webp`);
+    expect(mediumFile.contentType).toBe('image/webp');
 
     expect(smallFile).toBeDefined();
-    expect(smallFile.key).toBe(`${photoFolder}small.jpg`);
-    expect(smallFile.contentType).toBe('image/jpeg');
+    expect(smallFile.key).toBe(`${photoFolder}small.webp`);
+    expect(smallFile.contentType).toBe('image/webp');
 
     expect(thumbFile).toBeDefined();
-    expect(thumbFile.key).toBe(`${photoFolder}thumb.jpg`);
-    expect(thumbFile.contentType).toBe('image/jpeg');
+    expect(thumbFile.key).toBe(`${photoFolder}thumb.webp`);
+    expect(thumbFile.contentType).toBe('image/webp');
 
     // Verify metadata file exists
     expect(metadataFile).toBeDefined();
@@ -134,10 +134,10 @@ describe('Lambda handler', () => {
 
     // Verify the metadata versions structure matches our expectation
     expect(result.processedFiles).toContain(`${photoFolder}${originalFilename}`);
-    expect(result.processedFiles).toContain(`${photoFolder}large.jpg`);
-    expect(result.processedFiles).toContain(`${photoFolder}medium.jpg`);
-    expect(result.processedFiles).toContain(`${photoFolder}small.jpg`);
-    expect(result.processedFiles).toContain(`${photoFolder}thumb.jpg`);
+    expect(result.processedFiles).toContain(`${photoFolder}large.webp`);
+    expect(result.processedFiles).toContain(`${photoFolder}medium.webp`);
+    expect(result.processedFiles).toContain(`${photoFolder}small.webp`);
+    expect(result.processedFiles).toContain(`${photoFolder}thumb.webp`);
   });
 
   it('works with different original filename extensions and cases', async () => {
@@ -166,11 +166,9 @@ describe('Lambda handler', () => {
     // Verify it preserves the exact case and extension
     expect(originalFile.key).toMatch(new RegExp(`/${originalFilename}$`));
     
-    // Verify processed versions still use .jpg
-    const largeFile = putObjectCalls.find(call => call.key.endsWith('large.jpg'));
-    expect(largeFile).toBeDefined();
-    
-    // Verify all 6 files were uploaded
+      // Verify processed versions use WebP format
+      const largeFile = putObjectCalls.find(call => call.key.endsWith('large.webp'));
+      expect(largeFile).toBeDefined();    // Verify all 6 files were uploaded
     expect(putObjectCalls).toHaveLength(6);
   });
 });

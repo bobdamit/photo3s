@@ -5,7 +5,8 @@
 ## What This Does
 
 Automatically processes photos uploaded to S3 ingress buckets and delivers them to dedicated processed buckets:
-- **Creates 5 sizes**: thumbnail (150px), small (400px), medium (800px), large (1920px), original
+- **Creates 5 sizes**: thumb , small , medium , large , original
+- **WebP conversion**: Processed variants use efficient WebP format (25-35% smaller than JPEG)
 - **Extracts metadata**: EXIF, GPS, camera info, duplicate detection  
 - **Smart renaming**: Uses actual photo date: `photo-2024-09-19_14-30-25-Canon.jpg`
 - **Paired bucket architecture**: Separate ingress → processed bucket workflow
@@ -36,17 +37,17 @@ Photos uploaded to ingress buckets are automatically processed and organized in 
 ```
 photo3s-prod-bucketname-processed/
 └── photo-2024-09-19_14-30-25-Canon/
-    ├── photo-2024-09-19_14-30-25-Canon.jpg       # Original  
-    ├── photo-2024-09-19_14-30-25-Canon_large.jpg # 1920px
-    ├── photo-2024-09-19_14-30-25-Canon_medium.jpg# 800px
-    ├── photo-2024-09-19_14-30-25-Canon_small.jpg # 400px
-    ├── photo-2024-09-19_14-30-25-Canon_thumb.jpg # 150px
-    └── photo-2024-09-19_14-30-25-Canon.json      # Metadata
+    ├── DSC00334455.jpg  # Original (preserved)
+    ├── large.webp       # 1920px (WebP)
+    ├── medium.webp      # 1200px (WebP)
+    ├── small.webp       # 450px (WebP)
+    ├── thumb.webp       # 200px (WebP)
+    └── metadata.json    # Metadata
 ```
 
 **Direct web access URLs**:
 ```
-https://photo3s-prod-bucketname-processed.s3.amazonaws.com/photo-key/photo-key_large.jpg
+https://photo3s-prod-bucketname-processed.s3.amazonaws.com/photo-key/large.webp
 ```
 
 ## How to Deploy
@@ -141,10 +142,15 @@ This architectural separation ensures:
 
 ## Supported Formats
 
+**Input formats** (for upload):
 - JPEG (.jpg, .jpeg)
 - PNG (.png)  
 - TIFF (.tiff, .tif)
 - WebP (.webp)
+
+**Output formats**:
+- Original file: Preserved in original format
+- Processed variants: WebP format (25-35% smaller than JPEG)
 
 ## Configuration
 

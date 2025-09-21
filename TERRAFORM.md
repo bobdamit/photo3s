@@ -26,7 +26,7 @@ The system uses a **paired bucket** approach for clean separation:
 - **Naming**: `{prefix}-{env}-{root}-processed` (e.g., `photo3s-dev-sailing-processed`)
 - **Lifecycle**: Files retained permanently for public access
 - **Permissions**: Public read and list access for web applications
-- **Access**: Direct URLs like `https://photo3s-dev-sailing-processed.s3.amazonaws.com/photo-2025-09-21_sunset.jpg`
+- **Access**: Direct URLs like `https://photo3s-dev-sailing-processed.s3.amazonaws.com/photo-2025-09-21_sunset.webp`
 
 ### **Bucket Mapping**
 Lambda automatically routes photos from ingress → processed buckets:
@@ -299,7 +299,7 @@ Monitor these CloudWatch metrics:
 2. **Validation**: Check file size, format, and source bucket
 3. **EXIF Extraction**: Parse metadata, GPS, camera info
 4. **Duplicate Detection**: Compare with existing photos using date-based search
-5. **Image Processing**: Create 5 sizes with Sharp
+5. **Image Processing**: Create 5 sizes with Sharp library, converting processed variants to WebP format for 25-35% better compression
 6. **Upload**: Store all versions and metadata in organized folders
 7. **Cleanup**: Optionally delete original file
 
@@ -307,11 +307,11 @@ Monitor these CloudWatch metrics:
 ```
 processed/
 └── photo-2025-01-15_14-30-22-Canon/
-    ├── photo-2025-01-15_14-30-22-Canon.jpg      # Original
-    ├── photo-2025-01-15_14-30-22-Canon_large.jpg # 1920x1920
-    ├── photo-2025-01-15_14-30-22-Canon_medium.jpg# 800x800
-    ├── photo-2025-01-15_14-30-22-Canon_small.jpg # 400x400
-    ├── photo-2025-01-15_14-30-22-Canon_thumb.jpg # 150x150
+    ├── photo-2025-01-15_14-30-22-Canon.jpg      # Original (preserved)
+    ├── photo-2025-01-15_14-30-22-Canon_large.webp # 1920x1920 (WebP)
+    ├── photo-2025-01-15_14-30-22-Canon_medium.webp# 800x800 (WebP)
+    ├── photo-2025-01-15_14-30-22-Canon_small.webp # 400x400 (WebP)
+    ├── photo-2025-01-15_14-30-22-Canon_thumb.webp # 150x150 (WebP)
     └── photo-2025-01-15_14-30-22-Canon.json      # Metadata
 ```
 
@@ -342,10 +342,10 @@ processed/
   },
   "versions": {
     "original": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon.jpg",
-    "large": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_large.jpg",
-    "medium": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_medium.jpg",
-    "small": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_small.jpg",
-    "thumb": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_thumb.jpg"
+    "large": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_large.webp",
+    "medium": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_medium.webp",
+    "small": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_small.webp",
+    "thumb": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_thumb.webp"
   }
 }
 ```
