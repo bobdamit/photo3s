@@ -408,13 +408,9 @@ resource "aws_lambda_function" "photo_processor" {
     Name = "${local.name_prefix}-photo-processor"
   })
   
-  depends_on = local.use_prebuilt_image ? [
+  depends_on = [
     aws_iam_role_policy_attachment.lambda_basic,
     aws_cloudwatch_log_group.lambda_logs,
-  ] : [
-    aws_iam_role_policy_attachment.lambda_basic,
-    aws_cloudwatch_log_group.lambda_logs,
-    null_resource.lambda_image_build[0]
   ]
 }
 
