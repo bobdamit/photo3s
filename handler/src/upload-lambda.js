@@ -434,7 +434,10 @@ async function parseExif(imageBuffer) {
 		);
 		exif = await Promise.race([exifPromise, timeout]);
 
-		if (exif.tags.DateTimeOriginal) exifDate = new Date(exif.tags.DateTimeOriginal * 1000);
+		if (exif.tags.DateTimeOriginal) {
+			exifDate = new Date(exif.tags.DateTimeOriginal * 1000);
+		}
+
 		camera = exif.tags.Make || "unknown";
 		
 		// Extract GPS coordinates if available
@@ -461,7 +464,9 @@ function generateBaseName(exifDate, camera) {
 }
 
 async function handleDuplicatesIfNeeded(sourceBucket, key, targetBucket, isUsingSeparateBucket, shotDate, camera, actualFileSize, exif, original) {
-	if (!CONFIG.CHECK_DUPLICATES) return;
+	if (!CONFIG.CHECK_DUPLICATES) {
+		return;
+	}
 
 	console.info("Checking for potential duplicates");
 	const duplicateCheck = await checkForDuplicates(targetBucket, shotDate, camera, actualFileSize, exif);
@@ -653,12 +658,19 @@ function handleError(error, startTime, processingPhase, key) {
 	console.error(`Error in phase '${processingPhase}':`, error.message);
 
 	let errorCategory = 'unknown';
-	if (/getObject|download/.test(error.message)) errorCategory = 's3_download';
-	else if (/Sharp|resize|image/.test(error.message)) errorCategory = 'image_processing';
-	else if (/putObject|upload/.test(error.message)) errorCategory = 's3_upload';
-	else if (/EXIF/.test(error.message)) errorCategory = 'exif_parsing';
-	else if (/timeout/.test(error.message)) errorCategory = 'timeout';
-	else if (/memory|size/.test(error.message)) errorCategory = 'resource_limit';
+	if (/getObject|download/.test(error.message)) {
+		errorCategory = 's3_download';
+	} else if (/Sharp|resize|image/.test(error.message)) {
+		errorCategory = 'image_processing';
+	} else if (/putObject|upload/.test(error.message)) {
+		errorCategory = 's3_upload';
+	} else if (/EXIF/.test(error.message)) {
+		errorCategory = 'exif_parsing';
+	} else if (/timeout/.test(error.message)) {
+		errorCategory = 'timeout';
+	} else if (/memory|size/.test(error.message)) {
+		errorCategory = 'resource_limit';
+	}
 
 	return {
 		status: "error",
