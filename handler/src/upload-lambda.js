@@ -507,16 +507,15 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 	const originalFilename = key.split('/').pop(); // Extract just the filename from the full key path
 	
 	return {
+		collection: 'none',
 		photoFolder : photoFolder,
 		originalKey: key,
-		newBaseName: baseName,
-		timestamp: shotDate.toISOString(),
-		camera : camera,
-		fileSize: original.ContentLength || imageBuffer.length,
+		shotDate: shotDate.toISOString(),
+		procDate: new Date().toISOString(),
+		originalBytes: original.ContentLength || imageBuffer.length,
 		originalDimensions: { width: imageMetadata.width, height: imageMetadata.height, format: ext },
 		exifData: exif ? { make: exif.tags.Make, model: exif.tags.Model } : null,
-		processedAt: new Date().toISOString(),
-		versions: {
+		variations: {
 			original: {
 				path: buildPhotoPath(photoFolder, originalFilename, 'original'),
 				width: imageMetadata.width,
