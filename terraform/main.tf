@@ -408,14 +408,14 @@ resource "aws_lambda_function" "photo_processor" {
     Name = "${local.name_prefix}-photo-processor"
   })
   
-  depends_on = flatten([
-    [
-      aws_iam_role_policy_attachment.lambda_basic,
-      aws_cloudwatch_log_group.lambda_logs,
-    ],
-    # Only depend on local build if not using pre-built image
-    local.use_prebuilt_image ? [] : [null_resource.lambda_image_build[0]]
-  ])
+  depends_on = local.use_prebuilt_image ? [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_cloudwatch_log_group.lambda_logs,
+  ] : [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_cloudwatch_log_group.lambda_logs,
+    null_resource.lambda_image_build[0]
+  ]
 }
 
 #===============================================================================
