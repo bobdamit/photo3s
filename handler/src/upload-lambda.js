@@ -531,10 +531,10 @@ async function uploadAllFiles({ imageBuffer, original, targetBucket, photoFolder
  * @returns 
  */
 function buildPhotoPath(photoFolder, baseName, sizeLabel) {
+	console.info(`Building path for size '${sizeLabel}': baseName:${baseName} photoFolder:${photoFolder}`);
+
 	const sizeSuffix = sizeLabel === 'original' ? baseName : `_${sizeLabel}`;
 	const extension = sizeLabel === 'original' ? '' : '.jpg';
-
-	console.info(`Building path for size '${sizeLabel}': ${photoFolder}${baseName}${sizeSuffix}${extension}`);
 
 	let path = `${photoFolder}${sizeSuffix}${extension}`;
 	console.log(`Built photo path: ${path}`);
