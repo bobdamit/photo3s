@@ -466,10 +466,10 @@ async function handleDuplicatesIfNeeded(sourceBucket, key, targetBucket, isUsing
 async function processImageVariants(imageBuffer) {
 	const start = Date.now();
 	const tasks = [
-		sharp(imageBuffer).resize(1920, 1920, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer(),
-		sharp(imageBuffer).resize(800, 800, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
-		sharp(imageBuffer).resize(400, 400, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer(),
-		sharp(imageBuffer).resize(150, 150, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer()
+		sharp(imageBuffer).resize(1920,{ fit: "inside", withoutEnlargement: true }).jpeg({ quality: 95 }).toBuffer(),
+		sharp(imageBuffer).resize(800, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer(),
+		sharp(imageBuffer).resize(400, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer(),
+		sharp(imageBuffer).resize(150, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer()
 	];
 	const timeout = new Promise((_, reject) =>
 		setTimeout(() => reject(new Error('Image processing timeout')), CONFIG.OPERATION_TIMEOUT)
