@@ -24,7 +24,6 @@ locals {
   
   # Lambda environment variables
   lambda_environment = {
-    DELETE_ORIGINAL          = tostring(var.delete_original)
     CHECK_DUPLICATES         = tostring(var.check_duplicates)
     DUPLICATE_ACTION         = var.duplicate_action
     DUPLICATES_PREFIX        = "duplicates/"

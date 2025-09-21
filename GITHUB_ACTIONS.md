@@ -242,8 +242,6 @@ After the GitHub Action deploys your Lambda:
 2. Add variables as needed:
    - `ALLOWED_SOURCE_BUCKETS`: `bucket1,bucket2,bucket3`
    - `PROCESSED_BUCKET`: `my-processed-photos`
-   - `PROCESSED_PREFIX`: `processed/`
-   - `DELETE_ORIGINAL`: `false`
 
 See [MULTI_BUCKET.md](MULTI_BUCKET.md) for detailed multi-bucket configuration.
 

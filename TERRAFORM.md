@@ -56,7 +56,6 @@ create_buckets = true
 # Lambda Configuration
 lambda_memory  = 512
 lambda_timeout = 60
-delete_original = false  # Keep originals in dev
 
 # Monitoring
 enable_monitoring = true
@@ -163,8 +162,6 @@ Lambda function supports these environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PROCESSED_BUCKET` | source bucket | Target bucket for processed files |
-| `PROCESSED_PREFIX` | `processed/` | Prefix for processed files |
-| `DELETE_ORIGINAL` | `true` | Delete original after processing |
 | `CHECK_DUPLICATES` | `true` | Enable duplicate detection |
 | `DUPLICATE_ACTION` | `move` | Action for duplicates: `delete`/`move`/`keep` |
 | `DUPLICATES_PREFIX` | `duplicates/` | Prefix for duplicate files |

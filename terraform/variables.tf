@@ -74,11 +74,6 @@ variable "lambda_timeout" {
   }
 }
 
-variable "delete_original" {
-  description = "Whether Lambda should delete original files after processing (deprecated - use lifecycle policies instead)"
-  type        = bool
-  default     = false  # S3 lifecycle policies handle cleanup automatically
-}
 
 variable "ingress_retention_days" {
   description = "Number of days to retain ALL files in ephemeral ingress buckets before automatic deletion"

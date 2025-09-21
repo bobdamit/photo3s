@@ -68,7 +68,6 @@ https://photo3s-dev-sailing-processed.s3.amazonaws.com/photo-2024-09-19_14-30-25
    bucket_prefix = "photo3s"
    bucket_roots  = ["sailing", "mics"]  # Creates 4 buckets total
    lambda_memory = 512
-   delete_original = false
    ```
 
 3. **Deploy via GitHub Actions**:
@@ -152,7 +151,6 @@ This architectural separation ensures:
 ### Environment Variables (Terraform managed)
 - **`BUCKET_MAPPINGS`** - JSON mapping of ingress → processed buckets
 - **`ALLOWED_SOURCE_BUCKETS`** - Comma-separated list of allowed ingress buckets
-- **`DELETE_ORIGINAL`** - Whether to delete originals after processing (default: false)
 - **`CHECK_DUPLICATES`** - Enable duplicate detection (default: true)
 - **`DUPLICATE_ACTION`** - What to do with duplicates: 'delete', 'move', 'keep' (default: move)
 
@@ -162,7 +160,6 @@ bucket_prefix = "photo3s"
 bucket_roots  = ["sailing", "mics"]  # Creates paired buckets for each root
 create_buckets = true                 # Set to false to reference existing buckets
 lambda_memory = 512                   # Lambda memory allocation (MB)
-delete_original = false               # Keep originals in ingress buckets
 ```
 
 ## Monitoring and Logs

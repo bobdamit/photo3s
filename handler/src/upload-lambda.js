@@ -48,10 +48,6 @@ const CONFIG = {
 	// Bucket mappings: ingress bucket → processed bucket (JSON object)
 	BUCKET_MAPPINGS: process.env.BUCKET_MAPPINGS ? JSON.parse(process.env.BUCKET_MAPPINGS) : {},
 
-
-	// Whether to delete original file after processing
-	DELETE_ORIGINAL: process.env.DELETE_ORIGINAL !== 'false',
-
 	// Whether to check for duplicates before processing
 	CHECK_DUPLICATES: process.env.CHECK_DUPLICATES !== 'false', // default true
 
@@ -75,7 +71,7 @@ const CONFIG = {
 console.info('Lambda Configuration:');
 console.info('- Allowed source buckets:', CONFIG.ALLOWED_SOURCE_BUCKETS || 'any');
 console.info('- Bucket mappings:', JSON.stringify(CONFIG.BUCKET_MAPPINGS, null, 2));
-console.info('- Delete original:', CONFIG.DELETE_ORIGINAL);
+
 
 /**
  * Check for potential duplicates by searching existing processed files
@@ -326,8 +322,6 @@ exports.handler = async (event) => {
 			baseName, ext, large, medium, small, thumb, metadata, sourceBucket, key
 		});
 
-		// 8. Optionally delete original
-		await deleteOriginalIfConfigured(sourceBucket, key);
 
 		// Done
 		const totalTime = Date.now() - startTime;
@@ -529,14 +523,6 @@ async function uploadAllFiles({ imageBuffer, original, targetBucket, photoFolder
 	return Date.now() - start;
 }
 
-async function deleteOriginalIfConfigured(sourceBucket, key) {
-	if (!CONFIG.DELETE_ORIGINAL) return;
-	try {
-		await s3Client.send(new DeleteObjectCommand({ Bucket: sourceBucket, Key: key }));
-	} catch (err) {
-		console.warn(`Failed to delete original: ${err.message}`);
-	}
-}
 
 function buildSuccessResponse({ baseName, key, metadata, downloadTime, processingTime, uploadTime, totalTime, actualFileSize }) {
 	return {

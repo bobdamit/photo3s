@@ -15,7 +15,6 @@ ingress_retention_days = 2                   # Ephemeral ingress - delete ALL fi
 # Lambda Configuration
 lambda_memory  = 512
 lambda_timeout = 60
-delete_original = false  # S3 lifecycle policies handle cleanup automatically
 check_duplicates = true
 duplicate_action = "replace"  # Replace existing processed files with new uploads
 

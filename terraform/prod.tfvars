@@ -14,7 +14,6 @@ ingress_retention_days = 1  # Fast cleanup in production - originals deleted aft
 # Lambda Configuration
 lambda_memory    = 1024  # More memory for production
 lambda_timeout   = 90    # Longer timeout for large files
-delete_original  = true  # Delete originals in production
 check_duplicates = true
 duplicate_action = "replace"  # Replace existing processed files with new uploads
 
