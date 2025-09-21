@@ -335,9 +335,14 @@ processed/
     "dateTimeOriginal": "2025-01-15T14:30:22.000Z",
     "iso": 100,
     "fNumber": 2.8,
+    "exposureTime": 0.008,
+    "focalLength": 85,
+    "flash": 0,
     "gps": {
       "latitude": 37.7749,
-      "longitude": -122.4194
+      "longitude": -122.4194,
+      "altitude": 52.3,
+      "timestamp": "2025-01-15T14:30:15.000Z"
     }
   },
   "versions": {

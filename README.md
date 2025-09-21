@@ -7,7 +7,7 @@
 Automatically processes photos uploaded to S3 ingress buckets and delivers them to dedicated processed buckets:
 - **Creates 5 sizes**: thumb , small , medium , large , original
 - **WebP conversion**: Processed variants use efficient WebP format (25-35% smaller than JPEG)
-- **Extracts metadata**: EXIF, GPS, camera info, duplicate detection  
+- **Extracts metadata**: EXIF with GPS coordinates, camera settings, duplicate detection  
 - **Smart renaming**: Uses actual photo date: `photo-2024-09-19_14-30-25-Canon.jpg`
 - **Paired bucket architecture**: Separate ingress → processed bucket workflow
 - **Public photo serving**: Processed buckets configured for direct web access
@@ -128,10 +128,10 @@ This architectural separation ensures:
 - **CDN ready**: Optimized for CloudFront distribution integration
 
 ### Advanced Processing Features
-- **Duplicate detection**: EXIF-based duplicate identification and handling
+- **Duplicate detection**: EXIF-based duplicate identification with GPS coordinate extraction
 - **Memory optimization**: Streaming processing with memory monitoring
 - **Retry logic**: Resilient uploads with exponential backoff
-- **Multiple output formats**: 5 different sizes plus original with metadata
+- **Multiple output formats**: 5 different sizes plus original with GPS-enhanced metadata
 
 ## Documentation
 

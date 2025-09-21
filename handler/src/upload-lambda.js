@@ -296,7 +296,7 @@ exports.handler = async (event) => {
 
 		// 3. Parse EXIF metadata
 		processingPhase = 'exif_parsing';
-		const { exif, exifDate, camera } = await parseExif(imageBuffer);
+		const { exif, exifDate, camera, gpsCoords } = await parseExif(imageBuffer);
 
 		// 4. Generate base name and handle duplicates
 		const { baseName, shotDate } = generateBaseName(exifDate, camera);
@@ -313,7 +313,7 @@ exports.handler = async (event) => {
 		// 6. Collect metadata
 		const metadata = await buildMetadata({
 			key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket,
-			processedVariants: { large, medium, small, thumb }
+			processedVariants: { large, medium, small, thumb }, gpsCoords
 		});
 
 		// 7. Upload processed images + metadata
@@ -418,7 +418,7 @@ async function downloadImage(sourceBucket, key) {
 }
 
 async function parseExif(imageBuffer) {
-	let exif = null, exifDate = null, camera = "unknown";
+	let exif = null, exifDate = null, camera = "unknown", gpsCoords = null;
 
 	try {
 		const exifPromise = new Promise((resolve, reject) => {
@@ -436,10 +436,21 @@ async function parseExif(imageBuffer) {
 
 		if (exif.tags.DateTimeOriginal) exifDate = new Date(exif.tags.DateTimeOriginal * 1000);
 		camera = exif.tags.Make || "unknown";
+		
+		// Extract GPS coordinates if available
+		if (exif.tags.GPSLatitude !== undefined && exif.tags.GPSLongitude !== undefined) {
+			gpsCoords = {
+				latitude: exif.tags.GPSLatitude,
+				longitude: exif.tags.GPSLongitude,
+				altitude: exif.tags.GPSAltitude || null,
+				timestamp: exif.tags.GPSDateStamp ? new Date(exif.tags.GPSDateStamp).toISOString() : null
+			};
+			console.info(`GPS coordinates found: ${gpsCoords.latitude}, ${gpsCoords.longitude}`);
+		}
 	} catch (err) {
 		console.warn("Failed to parse EXIF:", err.message);
 	}
-	return { exif, exifDate, camera };
+	return { exif, exifDate, camera, gpsCoords };
 }
 
 function generateBaseName(exifDate, camera) {
@@ -501,10 +512,30 @@ async function processImageVariants(imageBuffer) {
 	return { large, medium, small, thumb, processingTime };
 }
 
-async function buildMetadata({ key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket, processedVariants }) {
+async function buildMetadata({ key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket, processedVariants, gpsCoords }) {
 	const imageMetadata = await sharp(imageBuffer).metadata();
 	const photoFolder = `${baseName}/`;
 	const originalFilename = key.split('/').pop(); // Extract just the filename from the full key path
+	
+	// Build comprehensive EXIF data object
+	let exifData = null;
+	if (exif) {
+		exifData = {
+			make: exif.tags.Make || null,
+			model: exif.tags.Model || null,
+			dateTimeOriginal: exif.tags.DateTimeOriginal ? new Date(exif.tags.DateTimeOriginal * 1000).toISOString() : null,
+			iso: exif.tags.ISO || null,
+			fNumber: exif.tags.FNumber || null,
+			exposureTime: exif.tags.ExposureTime || null,
+			focalLength: exif.tags.FocalLength || null,
+			flash: exif.tags.Flash || null
+		};
+		
+		// Add GPS data if available
+		if (gpsCoords) {
+			exifData.gps = gpsCoords;
+		}
+	}
 	
 	return {
 		collection: 'none',
@@ -516,7 +547,7 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 		procDate: new Date().toISOString(),
 		originalBytes: original.ContentLength || imageBuffer.length,
 		originalDimensions: { width: imageMetadata.width, height: imageMetadata.height, format: ext },
-		exifData: exif ? { make: exif.tags.Make, model: exif.tags.Model } : null,
+		exifData: exifData,
 		versions: {
 			original: {
 				path: buildPhotoPath(photoFolder, originalFilename, 'original'),
