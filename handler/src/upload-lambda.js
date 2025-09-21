@@ -515,7 +515,7 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 		originalBytes: original.ContentLength || imageBuffer.length,
 		originalDimensions: { width: imageMetadata.width, height: imageMetadata.height, format: ext },
 		exifData: exif ? { make: exif.tags.Make, model: exif.tags.Model } : null,
-		variations: {
+		versions: {
 			original: {
 				path: buildPhotoPath(photoFolder, originalFilename, 'original'),
 				width: imageMetadata.width,
