@@ -341,11 +341,41 @@ processed/
     }
   },
   "versions": {
-    "original": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon.jpg",
-    "large": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_large.webp",
-    "medium": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_medium.webp",
-    "small": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_small.webp",
-    "thumb": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_thumb.webp"
+    "original": {
+      "path": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon.jpg",
+      "width": 4000,
+      "height": 3000,
+      "bytes": 8245760,
+      "format": "jpeg"
+    },
+    "large": {
+      "path": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_large.webp",
+      "width": 1920,
+      "height": 1440,
+      "bytes": 234567,
+      "format": "webp"
+    },
+    "medium": {
+      "path": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_medium.webp",
+      "width": 1200,
+      "height": 900,
+      "bytes": 98765,
+      "format": "webp"
+    },
+    "small": {
+      "path": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_small.webp",
+      "width": 450,
+      "height": 338,
+      "bytes": 34567,
+      "format": "webp"
+    },
+    "thumb": {
+      "path": "processed/photo-2025-01-15_14-30-22-Canon/photo-2025-01-15_14-30-22-Canon_thumb.webp",
+      "width": 200,
+      "height": 150,
+      "bytes": 12345,
+      "format": "webp"
+    }
   }
 }
 ```

@@ -34,7 +34,8 @@ describe('Lambda handler', () => {
       putObjectCalls.push({
         bucket: params.Bucket,
         key: params.Key,
-        contentType: params.ContentType
+        contentType: params.ContentType,
+        body: params.Body // Capture the body content for JSON parsing
       });
       return Promise.resolve({});
     });
@@ -71,7 +72,22 @@ describe('Lambda handler', () => {
     expect(result.status).toBe('success');
     expect(result.baseName).toMatch(/photo-/);
     expect(result.processedFiles.length).toBeGreaterThan(0);
+    expect(result.processedFiles[0]).toMatch(/\.webp$|sample\.jpg$/); // Should be path strings
     expect(result.processingMetrics.originalSizeMB).toBeDefined();
+    
+    // Parse uploaded metadata to verify structure
+    const metadataCall = putObjectCalls.find(call => call.key.endsWith('.json'));
+    expect(metadataCall).toBeDefined();
+    const metadata = JSON.parse(metadataCall.body);
+    
+    // Verify new structured format for each version
+    expect(metadata.versions.large).toHaveProperty('path');
+    expect(metadata.versions.large).toHaveProperty('width');
+    expect(metadata.versions.large).toHaveProperty('height');
+    expect(metadata.versions.large).toHaveProperty('bytes');
+    expect(metadata.versions.large).toHaveProperty('format', 'webp');
+    
+    expect(metadata.versions.original).toHaveProperty('format', 'jpg');
   });
 
   it('preserves original filename and creates correct file structure', async () => {
@@ -131,13 +147,57 @@ describe('Lambda handler', () => {
     // Verify metadata file exists
     expect(metadataFile).toBeDefined();
     expect(metadataFile.contentType).toBe('application/json');
+    
+    // Parse and verify the new structured metadata format
+    const metadata = JSON.parse(metadataFile.body);
+    
+    // Verify each version has the structured format: {path, width, height, bytes, format}
+    expect(metadata.versions.original).toEqual({
+      path: `${photoFolder}${originalFilename}`,
+      width: expect.any(Number),
+      height: expect.any(Number),
+      bytes: expect.any(Number),
+      format: 'jpg' // Use lowercase to match actual file extension extraction
+    });
+    
+    expect(metadata.versions.large).toEqual({
+      path: `${photoFolder}large.webp`,
+      width: expect.any(Number),
+      height: expect.any(Number),
+      bytes: expect.any(Number),
+      format: 'webp'
+    });
+    
+    expect(metadata.versions.medium).toEqual({
+      path: `${photoFolder}medium.webp`,
+      width: expect.any(Number),
+      height: expect.any(Number),
+      bytes: expect.any(Number),
+      format: 'webp'
+    });
+    
+    expect(metadata.versions.small).toEqual({
+      path: `${photoFolder}small.webp`,
+      width: expect.any(Number),
+      height: expect.any(Number),
+      bytes: expect.any(Number),
+      format: 'webp'
+    });
+    
+    expect(metadata.versions.thumb).toEqual({
+      path: `${photoFolder}thumb.webp`,
+      width: expect.any(Number),
+      height: expect.any(Number),
+      bytes: expect.any(Number),
+      format: 'webp'
+    });
 
-    // Verify the metadata versions structure matches our expectation
-    expect(result.processedFiles).toContain(`${photoFolder}${originalFilename}`);
-    expect(result.processedFiles).toContain(`${photoFolder}large.webp`);
-    expect(result.processedFiles).toContain(`${photoFolder}medium.webp`);
-    expect(result.processedFiles).toContain(`${photoFolder}small.webp`);
-    expect(result.processedFiles).toContain(`${photoFolder}thumb.webp`);
+    // Verify the result processedFiles contains path strings from metadata
+    expect(result.processedFiles).toContain(metadata.versions.original.path);
+    expect(result.processedFiles).toContain(metadata.versions.large.path);
+    expect(result.processedFiles).toContain(metadata.versions.medium.path);
+    expect(result.processedFiles).toContain(metadata.versions.small.path);
+    expect(result.processedFiles).toContain(metadata.versions.thumb.path);
   });
 
   it('works with different original filename extensions and cases', async () => {

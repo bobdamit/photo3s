@@ -312,14 +312,15 @@ exports.handler = async (event) => {
 
 		// 6. Collect metadata
 		const metadata = await buildMetadata({
-			key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket
+			key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket,
+			processedVariants: { large, medium, small, thumb }
 		});
 
 		// 7. Upload processed images + metadata
 		processingPhase = 'upload';
 		const uploadTime = await uploadAllFiles({
 			imageBuffer, original, targetBucket, photoFolder: metadata.photoFolder,
-			baseName, large, medium, small, thumb, metadata, key});
+			baseName, large: large.buffer, medium: medium.buffer, small: small.buffer, thumb: thumb.buffer, metadata, key});
 
 
 		// Done
@@ -465,25 +466,46 @@ async function handleDuplicatesIfNeeded(sourceBucket, key, targetBucket, isUsing
 
 async function processImageVariants(imageBuffer) {
 	const start = Date.now();
+	
+	// Create Sharp pipelines that return both buffer and metadata
+	const createVariant = async (maxWidth, maxHeight, quality) => {
+		const pipeline = sharp(imageBuffer)
+			.resize(maxWidth, maxHeight, { fit: "inside", withoutEnlargement: true })
+			.webp({ quality, effort: 4 });
+		
+		const buffer = await pipeline.toBuffer();
+		const metadata = await pipeline.metadata();
+		
+		return {
+			buffer,
+			width: metadata.width,
+			height: metadata.height,
+			bytes: buffer.length
+		};
+	};
+	
 	const tasks = [
-		// WebP provides better compression than JPEG with similar quality
-		sharp(imageBuffer).resize(1920, 1920, { fit: "inside", withoutEnlargement: true }).webp({ quality: 85, effort: 4 }).toBuffer(),
-		sharp(imageBuffer).resize(1200, 1200, { fit: "inside", withoutEnlargement: true }).webp({ quality: 80, effort: 4 }).toBuffer(),
-		sharp(imageBuffer).resize(450, 450, { fit: "inside", withoutEnlargement: true }).webp({ quality: 75, effort: 4 }).toBuffer(),
-		sharp(imageBuffer).resize(200, 200, { fit: "inside", withoutEnlargement: true }).webp({ quality: 70, effort: 4 }).toBuffer()
+		createVariant(1920, 1920, 85), // large
+		createVariant(1200, 1200, 80), // medium  
+		createVariant(650, 650, 75),   // small
+		createVariant(200, 200, 70)    // thumb
 	];
+	
 	const timeout = new Promise((_, reject) =>
 		setTimeout(() => reject(new Error('Image processing timeout')), CONFIG.OPERATION_TIMEOUT)
 	);
+	
 	const [large, medium, small, thumb] = await Promise.race([Promise.all(tasks), timeout]);
 	const processingTime = Date.now() - start;
+	
 	return { large, medium, small, thumb, processingTime };
 }
 
-async function buildMetadata({ key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket }) {
+async function buildMetadata({ key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket, processedVariants }) {
 	const imageMetadata = await sharp(imageBuffer).metadata();
 	const photoFolder = `${baseName}/`;
 	const originalFilename = key.split('/').pop(); // Extract just the filename from the full key path
+	
 	return {
 		photoFolder : photoFolder,
 		originalKey: key,
@@ -495,11 +517,41 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 		exifData: exif ? { make: exif.tags.Make, model: exif.tags.Model } : null,
 		processedAt: new Date().toISOString(),
 		versions: {
-			original: buildPhotoPath(photoFolder, originalFilename, 'original'),
-			large: buildPhotoPath(photoFolder, originalFilename, 'large'),
-			medium: buildPhotoPath(photoFolder, originalFilename, 'medium'),
-			small: buildPhotoPath(photoFolder, originalFilename, 'small'),
-			thumb: buildPhotoPath(photoFolder, originalFilename, 'thumb'),
+			original: {
+				path: buildPhotoPath(photoFolder, originalFilename, 'original'),
+				width: imageMetadata.width,
+				height: imageMetadata.height,
+				bytes: original.ContentLength || imageBuffer.length,
+				format: ext
+			},
+			large: {
+				path: buildPhotoPath(photoFolder, originalFilename, 'large'),
+				width: processedVariants.large.width,
+				height: processedVariants.large.height,
+				bytes: processedVariants.large.bytes,
+				format: 'webp'
+			},
+			medium: {
+				path: buildPhotoPath(photoFolder, originalFilename, 'medium'),
+				width: processedVariants.medium.width,
+				height: processedVariants.medium.height,
+				bytes: processedVariants.medium.bytes,
+				format: 'webp'
+			},
+			small: {
+				path: buildPhotoPath(photoFolder, originalFilename, 'small'),
+				width: processedVariants.small.width,
+				height: processedVariants.small.height,
+				bytes: processedVariants.small.bytes,
+				format: 'webp'
+			},
+			thumb: {
+				path: buildPhotoPath(photoFolder, originalFilename, 'thumb'),
+				width: processedVariants.thumb.width,
+				height: processedVariants.thumb.height,
+				bytes: processedVariants.thumb.bytes,
+				format: 'webp'
+			}
 		}
 	};
 }
@@ -552,8 +604,8 @@ function buildSuccessResponse({ baseName, key, metadata, downloadTime, processin
 		status: "success",
 		baseName,
 		originalKey: key,
-		processedFiles: Object.values(metadata.versions),
-		metadata: `${metadata.photoFolder}${baseName}.json`,
+		processedFiles: Object.values(metadata.versions).map(v => v.path),
+		metadata: `${metadata.photoFolder}metadata.json`,
 		processingMetrics: {
 			totalTimeMs: totalTime,
 			downloadTimeMs: downloadTime,
