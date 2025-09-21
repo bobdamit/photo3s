@@ -388,12 +388,11 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
 # Lambda Function
 #===============================================================================
 
-# Force Lambda function updates when container image changes
-resource "null_resource" "lambda_image_trigger" {
-  triggers = {
-    # This will change whenever the image URI changes, forcing Lambda update
-    image_uri = local.lambda_image_uri
-  }
+# Get the current image digest from ECR to detect when image content changes
+data "aws_ecr_image" "lambda_image" {
+  count           = local.use_prebuilt_image ? 1 : 0
+  repository_name = data.aws_ecr_repository.lambda_repo.name
+  image_tag       = split(":", var.lambda_image_uri)[1]  # Extract tag from URI
 }
 
 resource "aws_lambda_function" "photo_processor" {
@@ -403,6 +402,9 @@ resource "aws_lambda_function" "photo_processor" {
   # Container image configuration - use pre-built or locally built image
   package_type = "Image"
   image_uri    = local.lambda_image_uri
+  
+  # Force update when image content changes (not just URI)
+  source_code_hash = local.use_prebuilt_image ? data.aws_ecr_image.lambda_image[0].image_digest : null
   
   # Function configuration
   memory_size = var.lambda_memory
