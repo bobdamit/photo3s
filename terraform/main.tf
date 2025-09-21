@@ -238,7 +238,7 @@ locals {
   
   # Generate unique tag for local builds only
   code_hash = substr(sha256(join("", [
-    filemd5("${path.module}/../upload-lambda.js"),
+    filemd5("${path.module}/../handler/src/upload-lambda.js"),
     filemd5("${path.module}/../package.json"),
     filemd5("${path.module}/../Dockerfile")
   ])), 0, 8)
@@ -254,7 +254,7 @@ resource "null_resource" "lambda_image_build" {
   count = local.use_prebuilt_image ? 0 : 1
   
   triggers = {
-    lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
+    lambda_code_hash = filemd5("${path.module}/../handler/src/upload-lambda.js")
     package_hash     = filemd5("${path.module}/../package.json")
     dockerfile_hash  = filemd5("${path.module}/../Dockerfile")
     ecr_repo_url     = data.aws_ecr_repository.lambda_repo.repository_url
@@ -388,13 +388,6 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
 # Lambda Function
 #===============================================================================
 
-# Get the current image digest from ECR to detect when image content changes
-data "aws_ecr_image" "lambda_image" {
-  count           = local.use_prebuilt_image ? 1 : 0
-  repository_name = data.aws_ecr_repository.lambda_repo.name
-  image_tag       = split(":", var.lambda_image_uri)[1]  # Extract tag from URI
-}
-
 resource "aws_lambda_function" "photo_processor" {
   function_name = "${local.name_prefix}-photo-processor"
   role         = aws_iam_role.lambda_role.arn
@@ -403,16 +396,11 @@ resource "aws_lambda_function" "photo_processor" {
   package_type = "Image"
   image_uri    = local.lambda_image_uri
   
-  # Force update when image content changes (not just URI)
-  source_code_hash = local.use_prebuilt_image ? data.aws_ecr_image.lambda_image[0].image_digest : null
-  
   # Function configuration
   memory_size = var.lambda_memory
   timeout     = var.lambda_timeout
   
-  # Force Lambda to update when container image changes
   depends_on = [
-    null_resource.lambda_image_trigger,
     aws_iam_role_policy_attachment.lambda_basic,
     aws_cloudwatch_log_group.lambda_logs,
   ]
