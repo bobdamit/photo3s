@@ -185,7 +185,7 @@ resource "aws_s3_bucket_public_access_block" "processed_buckets" {
   restrict_public_buckets = false # Allow bucket to be public via policy
 }
 
-# Bucket policy to allow public read access to processed photos
+# Bucket policy to allow public read and list access to processed photos
 resource "aws_s3_bucket_policy" "processed_buckets" {
   for_each = var.create_buckets ? local.bucket_pairs : {}
   
@@ -205,6 +205,13 @@ resource "aws_s3_bucket_policy" "processed_buckets" {
             "s3:ExistingObjectTag/private" = "true"
           }
         }
+      },
+      {
+        Sid       = "AllowPublicList"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:ListBucket"
+        Resource  = aws_s3_bucket.processed_buckets[each.key].arn
       }
     ]
   })
@@ -323,12 +330,13 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # Read access to ingress buckets
+      # Read and delete access to ingress buckets (delete needed for 'replace' duplicate action)
       {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
-          "s3:GetObjectVersion"
+          "s3:GetObjectVersion",
+          "s3:DeleteObject"
         ]
         Resource = [
           for bucket in local.ingress_buckets : "arn:aws:s3:::${bucket}/*"
