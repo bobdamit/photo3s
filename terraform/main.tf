@@ -15,6 +15,13 @@ locals {
   processed_buckets = [for pair in local.bucket_pairs : pair.processed]
   all_buckets      = concat(local.ingress_buckets, local.processed_buckets)
   
+  # Create the bucket mapping structure that Lambda expects: ingress_bucket -> processed_bucket
+  lambda_bucket_mappings = {
+    for root, buckets in local.bucket_pairs : buckets.ingress => {
+      processed = buckets.processed
+    }
+  }
+  
   # Lambda environment variables
   lambda_environment = {
     PROCESSED_PREFIX         = "processed/"
@@ -24,7 +31,7 @@ locals {
     DUPLICATES_PREFIX        = "duplicates/"
     SKIP_PROCESSED_FOLDER    = "true"
     ALLOWED_SOURCE_BUCKETS   = join(",", local.ingress_buckets)
-    BUCKET_MAPPINGS          = jsonencode(local.bucket_pairs)
+    BUCKET_MAPPINGS          = jsonencode(local.lambda_bucket_mappings)
   }
   
   # Common tags
