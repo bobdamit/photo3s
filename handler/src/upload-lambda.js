@@ -473,13 +473,13 @@ async function processImageVariants(imageBuffer) {
 			.resize(maxWidth, maxHeight, { fit: "inside", withoutEnlargement: true })
 			.webp({ quality, effort: 4 });
 		
-		const buffer = await pipeline.toBuffer();
-		const metadata = await pipeline.metadata();
+		// Use resolveWithObject to get both buffer and metadata of the processed image
+		const { data: buffer, info } = await pipeline.toBuffer({ resolveWithObject: true });
 		
 		return {
 			buffer,
-			width: metadata.width,
-			height: metadata.height,
+			width: info.width,
+			height: info.height,
 			bytes: buffer.length
 		};
 	};

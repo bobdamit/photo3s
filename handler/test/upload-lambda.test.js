@@ -88,6 +88,12 @@ describe('Lambda handler', () => {
     expect(metadata.versions.large).toHaveProperty('format', 'webp');
     
     expect(metadata.versions.original).toHaveProperty('format', 'jpg');
+    
+    // Verify that processed variants have different (smaller) dimensions than original
+    expect(metadata.versions.large.width).toBeLessThanOrEqual(metadata.versions.original.width);
+    expect(metadata.versions.medium.width).toBeLessThanOrEqual(metadata.versions.large.width);
+    expect(metadata.versions.small.width).toBeLessThanOrEqual(metadata.versions.medium.width);
+    expect(metadata.versions.thumb.width).toBeLessThanOrEqual(metadata.versions.small.width);
   });
 
   it('preserves original filename and creates correct file structure', async () => {
