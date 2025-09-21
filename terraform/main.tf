@@ -224,12 +224,25 @@ resource "aws_ecr_lifecycle_policy" "lambda_repo" {
 # Docker Image Build and Push
 #===============================================================================
 
+# Generate unique tag based on code changes
+locals {
+  # Create a hash of all code files to generate unique image tags
+  code_hash = substr(sha256(join("", [
+    filemd5("${path.module}/../upload-lambda.js"),
+    filemd5("${path.module}/../package.json"),
+    filemd5("${path.module}/../Dockerfile")
+  ])), 0, 8)
+  
+  image_tag = "v${local.code_hash}"
+}
+
 resource "null_resource" "lambda_image_build" {
   triggers = {
     lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
     package_hash     = filemd5("${path.module}/../package.json")
     dockerfile_hash  = filemd5("${path.module}/../Dockerfile")
     ecr_repo_url     = aws_ecr_repository.lambda_repo.repository_url
+    image_tag        = local.image_tag
   }
 
   provisioner "local-exec" {
@@ -237,10 +250,14 @@ resource "null_resource" "lambda_image_build" {
       # Login to ECR
       aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${aws_ecr_repository.lambda_repo.repository_url}
       
-      # Build and tag the image
-      docker build -t ${aws_ecr_repository.lambda_repo.repository_url}:latest ${path.module}/..
+      # Build and tag the image with unique tag
+      docker build -t ${aws_ecr_repository.lambda_repo.repository_url}:${local.image_tag} ${path.module}/..
       
-      # Push the image
+      # Also tag as latest for convenience
+      docker tag ${aws_ecr_repository.lambda_repo.repository_url}:${local.image_tag} ${aws_ecr_repository.lambda_repo.repository_url}:latest
+      
+      # Push both tags
+      docker push ${aws_ecr_repository.lambda_repo.repository_url}:${local.image_tag}
       docker push ${aws_ecr_repository.lambda_repo.repository_url}:latest
     EOT
   }
@@ -356,9 +373,9 @@ resource "aws_lambda_function" "photo_processor" {
   function_name = "${local.name_prefix}-photo-processor"
   role         = aws_iam_role.lambda_role.arn
   
-  # Container image configuration
+  # Container image configuration - use unique tag based on code hash
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:${local.image_tag}"
   
   # Function configuration
   memory_size = var.lambda_memory
