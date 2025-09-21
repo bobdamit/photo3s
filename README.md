@@ -34,7 +34,7 @@ Photos uploaded to ingress buckets are automatically processed and organized in 
 
 **New clean structure** (no unnecessary subfolders):
 ```
-photo3s-dev-sailing-processed/
+photo3s-prod-bucketname-processed/
 └── photo-2024-09-19_14-30-25-Canon/
     ├── photo-2024-09-19_14-30-25-Canon.jpg       # Original  
     ├── photo-2024-09-19_14-30-25-Canon_large.jpg # 1920px
@@ -46,7 +46,7 @@ photo3s-dev-sailing-processed/
 
 **Direct web access URLs**:
 ```
-https://photo3s-dev-sailing-processed.s3.amazonaws.com/photo-2024-09-19_14-30-25-Canon/photo-2024-09-19_14-30-25-Canon_large.jpg
+https://photo3s-prod-bucketname-processed.s3.amazonaws.com/photo-key/photo-key_large.jpg
 ```
 
 ## How to Deploy
