@@ -319,8 +319,7 @@ exports.handler = async (event) => {
 		processingPhase = 'upload';
 		const uploadTime = await uploadAllFiles({
 			imageBuffer, original, targetBucket, photoFolder: metadata.photoFolder,
-			baseName, ext, large, medium, small, thumb, metadata, sourceBucket, key
-		});
+			baseName, large, medium, small, thumb, metadata, key});
 
 
 		// Done
@@ -504,7 +503,12 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 	};
 }
 
-async function uploadAllFiles({ imageBuffer, original, targetBucket, photoFolder, baseName, ext, large, medium, small, thumb, metadata, sourceBucket, key }) {
+async function uploadAllFiles(
+	{ imageBuffer, 
+		original, 
+		targetBucket, 
+		photoFolder, baseName, large, medium, small, thumb, metadata, key }
+	) {
 	const start = Date.now();
 	const uploadWithRetry = (cmd) => retryWithBackoff(() => s3Client.send(cmd), 3, 1000);
 	const originalFilename = key.split('/').pop(); // Extract just the filename from the full key path
@@ -519,7 +523,7 @@ async function uploadAllFiles({ imageBuffer, original, targetBucket, photoFolder
 		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'small'), Body: small, ContentType: 'image/jpeg' })),
 		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'thumb'), Body: thumb, ContentType: 'image/jpeg' })),
 		uploadWithRetry(new PutObjectCommand({
-			Bucket: targetBucket, Key: `${photoFolder}${baseName}.json`, Body: JSON.stringify(metadata, null, 2),
+			Bucket: targetBucket, Key: `${photoFolder}metadata.json`, Body: JSON.stringify(metadata, null, 2),
 			ContentType: 'application/json'
 		}))
 	];
