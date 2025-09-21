@@ -86,7 +86,7 @@ jobs:
           echo "short-sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v5
 
       - name: Log in to Amazon ECR
         if: steps.deploy-check.outputs.should-deploy == 'true'
