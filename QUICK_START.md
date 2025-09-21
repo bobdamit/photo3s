@@ -6,14 +6,18 @@
 
 ```
 photo3s/
-├── upload-lambda.js          # Your photo processing code
-├── Dockerfile               # Packages code into container
-├── terraform/               # Infrastructure definitions
-│   ├── main.tf             # AWS resources (Lambda, S3, etc.)
-│   ├── dev.tfvars          # Development settings
-│   └── prod.tfvars         # Production settings
-└── .github/workflows/       # Automation pipeline
-    └── terraform-deploy.yml # Complete CI/CD pipeline
+├── handler
+│   └── src
+|   |   └── upload-lambda.js       # Your photo processing code
+│   └── test
+|   |   └── upload-lambda.test.js  # Unit test for handler
+├── Dockerfile                     # Packages code into container
+├── terraform/                     # Infrastructure definitions
+│   ├── main.tf                    # AWS resources (Lambda, S3, etc.)
+│   ├── dev.tfvars                 # Development settings
+│   └── prod.tfvars                # Production settings
+└── .github/workflows/             # Automation pipeline
+    └── build-and-deploy.yml       # Complete CI/CD pipeline
 ```
 
 ### **The Workflow (Simplified):**
@@ -28,17 +32,15 @@ photo3s/
 ### **Automated Deployment Only:**
 
 ```bash
-git push origin feature-x    # → Deploys to development
-git push origin main         # → Deploys to production (with approval)
+git push origin feature-x    # → Runs test and builds container
+git push origin main         # → Runs test builds/deployes container and applies terraform
 ```
 
 ### **What Happens When You Deploy:**
 
-1. **Creates S3 buckets** for your photos
-2. **Builds Lambda function** in a container
-3. **Sets up triggers** so uploads automatically process
-4. **Configures monitoring** so you can see what's happening
-5. **Creates IAM roles** for secure access
+1. The Lambda is built into a docker container
+2. The container is deployed to ECR
+3. Terraform provisions/updates AWS resources includig buckets, roles, triggers
 
 ### **Environment Differences:**
 

@@ -152,7 +152,7 @@ This architectural separation ensures:
 - **`BUCKET_MAPPINGS`** - JSON mapping of ingress → processed buckets
 - **`ALLOWED_SOURCE_BUCKETS`** - Comma-separated list of allowed ingress buckets
 - **`CHECK_DUPLICATES`** - Enable duplicate detection (default: true)
-- **`DUPLICATE_ACTION`** - What to do with duplicates: 'delete', 'move', 'keep' (default: move)
+- **`DUPLICATE_ACTION`** - What to do with duplicates: 'delete', 'move', 'replace' (default: replace)
 
 ### Bucket Configuration (dev.tfvars)
 ```hcl
@@ -181,7 +181,7 @@ The system supports complete clean deployment from scratch:
 
 ## Contributing
 
-1. Create feature branch from `modernize-cicd`
+1. Create feature branch from `my-slick-new-feature`
 2. Test changes with four-job pipeline
 3. Deploy to production environment as needed
 

@@ -5,22 +5,53 @@ Production-ready infrastructure for automated photo processing using AWS Lambda,
 ## Architecture
 
 - **AWS Lambda**: Containerized photo processing function (Node.js 20.x)
-- **Amazon S3**: Source and processed photo storage with event triggers
+- **Amazon S3**: Paired bucket architecture - ingress buckets for uploads, processed buckets for public access
 - **Amazon ECR**: Container image registry for Lambda deployments
 - **CloudWatch**: Comprehensive logging, monitoring, and alerting
 - **Terraform**: Infrastructure as Code with multi-environment support
-- **GitHub Actions**: Automated CI/CD pipeline for building and deploying
+- **GitHub Actions**: Four-job CI/CD pipeline (test → build → container → infrastructure)
+
+## Paired Bucket Architecture
+
+The system uses a **paired bucket** approach for clean separation:
+
+### **Ingress Buckets** (Private)
+- **Purpose**: Receive original photo uploads
+- **Naming**: `{prefix}-{env}-{root}-ingress` (e.g., `photo3s-dev-sailing-ingress`)
+- **Lifecycle**: Files automatically deleted after processing (1-2 days)
+- **Permissions**: Private - Lambda read/delete access only
+
+### **Processed Buckets** (Public)
+- **Purpose**: Store processed photos and serve them publicly
+- **Naming**: `{prefix}-{env}-{root}-processed` (e.g., `photo3s-dev-sailing-processed`)
+- **Lifecycle**: Files retained permanently for public access
+- **Permissions**: Public read and list access for web applications
+- **Access**: Direct URLs like `https://photo3s-dev-sailing-processed.s3.amazonaws.com/photo-2025-09-21_sunset.jpg`
+
+### **Bucket Mapping**
+Lambda automatically routes photos from ingress → processed buckets:
+```json
+{
+  "photo3s-dev-sailing-ingress": {
+    "processed": "photo3s-dev-sailing-processed"
+  },
+  "photo3s-dev-mics-ingress": {
+    "processed": "photo3s-dev-mics-processed"
+  }
+}
+```
 
 ## Features
 
-- Multi-size image generation (thumbnail, small, medium, large, original)
-- EXIF metadata extraction and GPS data processing
-- Intelligent duplicate detection using date-based searching
-- Configurable duplicate handling (delete/move/keep)
-- Comprehensive error handling and retry logic
-- Memory usage monitoring and optimization
-- Multi-environment support (dev/staging/prod)
-- Automated CI/CD pipeline with approval gates
+- **Paired Bucket Architecture**: Separate ingress and processed buckets for clean workflow
+- **Multi-size image generation**: Thumbnail, small, medium, large, original variants
+- **EXIF metadata extraction**: GPS data processing and metadata preservation
+- **Intelligent duplicate detection**: Date-based searching with configurable actions
+- **Flexible duplicate handling**: delete, move, keep, or replace existing files
+- **Public access configuration**: Processed buckets support public GetObject and ListBucket
+- **Comprehensive error handling**: Retry logic and memory optimization
+- **Multi-environment support**: Dev, staging, and production configurations
+- **Automated CI/CD pipeline**: Four-job workflow with testing, building, and deployment
 
 ## Prerequisites
 
@@ -49,13 +80,21 @@ Edit the environment-specific variables in `terraform/dev.tfvars`:
 environment = "dev"
 aws_region  = "us-east-1"
 
-# S3 Configuration - CHANGE THESE TO YOUR BUCKET NAMES
-source_buckets = ["your-photos-dev-bucket"]
-create_buckets = true
+# S3 Configuration - AUTO-GENERATED BUCKET PAIRS
+# Each root creates: {prefix}-{env}-{root}-ingress and {prefix}-{env}-{root}-processed
+bucket_prefix = "photo3s"                    # Creates photo3s-dev-* buckets
+bucket_roots  = ["sailing", "mics"]         # Creates 4 buckets total:
+                                              #   photo3s-dev-sailing-ingress
+                                              #   photo3s-dev-sailing-processed
+                                              #   photo3s-dev-mics-ingress
+                                              #   photo3s-dev-mics-processed
+ingress_retention_days = 2                   # Ephemeral ingress - delete ALL files
 
 # Lambda Configuration
 lambda_memory  = 512
 lambda_timeout = 60
+check_duplicates = true
+duplicate_action = "replace"  # Replace existing processed files with new uploads
 
 # Monitoring
 enable_monitoring = true
@@ -100,7 +139,7 @@ aws logs tail /aws/lambda/photo3s-dev-photo-processor --follow
 aws ecr describe-repositories --repository-names photo3s-dev-lambda
 
 # List processed files
-aws s3 ls s3://your-photos-dev-bucket/processed/ --recursive
+aws s3 ls s3://photo3s-dev-sailing-processed/ --recursive
 ```
 
 ## ECR and Container Workflow
@@ -157,14 +196,16 @@ The GitHub Actions pipeline handles all container operations:
 
 ### Environment Variables
 
-Lambda function supports these environment variables:
+Lambda function supports these environment variables (automatically set by Terraform):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROCESSED_BUCKET` | source bucket | Target bucket for processed files |
+| `BUCKET_MAPPINGS` | JSON object | Mapping of ingress → processed buckets |
+| `ALLOWED_SOURCE_BUCKETS` | comma-separated | Allowed ingress bucket names |
 | `CHECK_DUPLICATES` | `true` | Enable duplicate detection |
-| `DUPLICATE_ACTION` | `move` | Action for duplicates: `delete`/`move`/`keep` |
-| `DUPLICATES_PREFIX` | `duplicates/` | Prefix for duplicate files |
+| `DUPLICATE_ACTION` | `replace` | Action for duplicates: delete/move/keep/replace |
+| `DUPLICATES_PREFIX` | `duplicates/` | Prefix for duplicate files (when action=move) |
+| `DELETE_ORIGINAL` | `false` | Delete original after processing |
 | `MAX_FILE_SIZE` | `104857600` | Max file size in bytes (100MB) |
 | `OPERATION_TIMEOUT` | `30000` | Timeout for operations in ms |
 | `DETAILED_LOGGING` | `false` | Enable verbose logging |
@@ -173,16 +214,23 @@ Lambda function supports these environment variables:
 
 Key variables in `terraform/*.tfvars`:
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| `source_buckets` | list | S3 buckets that trigger processing |
-| `create_buckets` | bool | Whether to create the buckets |
-| `processed_bucket_name` | string | Separate processed bucket (optional) |
-| `lambda_memory` | number | Lambda memory in MB (128-10240) |
-| `lambda_timeout` | number | Lambda timeout in seconds (1-900) |
-| `enable_monitoring` | bool | Enable CloudWatch alarms |
-| `enable_xray` | bool | Enable X-Ray tracing |
-| `log_retention_days` | number | CloudWatch log retention |
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `environment` | string | `"dev"` | Environment name (dev, staging, prod) |
+| `aws_region` | string | `"us-east-1"` | AWS region for resources |
+| `project_name` | string | `"photo3s"` | Project name for resource naming |
+| `bucket_prefix` | string | `"photo3s"` | Prefix for all bucket names |
+| `bucket_roots` | list | `[]` | Root names for bucket pairs (creates ingress/processed pairs) |
+| `ingress_retention_days` | number | `2` | Days to retain files in ingress buckets |
+| `lambda_memory` | number | `512` | Lambda memory in MB (128-10240) |
+| `lambda_timeout` | number | `90` | Lambda timeout in seconds (1-900) |
+| `lambda_image_uri` | string | `""` | Pre-built ECR image URI (optional) |
+| `check_duplicates` | bool | `true` | Enable duplicate detection |
+| `duplicate_action` | string | `"replace"` | Action for duplicates: delete/move/keep/replace |
+| `enable_monitoring` | bool | `true` | Enable CloudWatch alarms |
+| `enable_xray` | bool | `false` | Enable X-Ray tracing |
+| `log_retention_days` | number | `14` | CloudWatch log retention days |
+| `tags` | map | `{}` | Common tags for all resources |
 
 ## Monitoring and Operations
 
@@ -347,9 +395,9 @@ aws sts get-caller-identity
 - Monitor CloudWatch memory utilization metrics
 
 **3. S3 permission errors**
-- Verify bucket names match tfvars configuration
-- Check Lambda IAM role has correct S3 permissions
-- Ensure buckets exist or `create_buckets = true`
+- Verify bucket names match tfvars configuration (`bucket_prefix` and `bucket_roots`)
+- Check Lambda IAM role has correct S3 permissions (GetObject, PutObject, DeleteObject, ListBucket)
+- Ensure bucket pairs are properly created by Terraform
 
 ### Debugging Steps
 
