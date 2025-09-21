@@ -15,6 +15,13 @@ locals {
   processed_buckets = [for pair in local.bucket_pairs : pair.processed]
   all_buckets      = concat(local.ingress_buckets, local.processed_buckets)
   
+  # Create the bucket mapping structure that Lambda expects: ingress_bucket -> processed_bucket
+  lambda_bucket_mappings = {
+    for root, buckets in local.bucket_pairs : buckets.ingress => {
+      processed = buckets.processed
+    }
+  }
+  
   # Lambda environment variables
   lambda_environment = {
     PROCESSED_PREFIX         = "processed/"
@@ -24,7 +31,7 @@ locals {
     DUPLICATES_PREFIX        = "duplicates/"
     SKIP_PROCESSED_FOLDER    = "true"
     ALLOWED_SOURCE_BUCKETS   = join(",", local.ingress_buckets)
-    BUCKET_MAPPINGS          = jsonencode(local.bucket_pairs)
+    BUCKET_MAPPINGS          = jsonencode(local.lambda_bucket_mappings)
   }
   
   # Common tags
@@ -167,57 +174,53 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
   }
 }
 
-#===============================================================================
-# ECR Repository for Lambda Container
-#===============================================================================
-
-resource "aws_ecr_repository" "lambda_repo" {
-  name                 = "${local.name_prefix}-lambda"
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
+# Public access configuration for processed buckets (allow public read access)
+resource "aws_s3_bucket_public_access_block" "processed_buckets" {
+  for_each = var.create_buckets ? local.bucket_pairs : {}
   
-  tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-lambda-repo"
-  })
+  bucket = aws_s3_bucket.processed_buckets[each.key].id
+
+  # Allow public access for serving photos
+  block_public_acls       = true  # Still block public ACLs for security
+  block_public_policy     = false # Allow bucket policies (needed for public read)
+  ignore_public_acls      = true  # Ignore public ACLs for security  
+  restrict_public_buckets = false # Allow bucket to be public via policy
 }
 
-resource "aws_ecr_lifecycle_policy" "lambda_repo" {
-  repository = aws_ecr_repository.lambda_repo.name
-
+# Bucket policy to allow public read access to processed photos
+resource "aws_s3_bucket_policy" "processed_buckets" {
+  for_each = var.create_buckets ? local.bucket_pairs : {}
+  
+  bucket = aws_s3_bucket.processed_buckets[each.key].id
+  
   policy = jsonencode({
-    rules = [
+    Version = "2012-10-17"
+    Statement = [
       {
-        rulePriority = 1
-        description  = "Keep last 5 images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 5
-        }
-        action = {
-          type = "expire"
-        }
-      },
-      {
-        rulePriority = 2
-        description  = "Delete untagged images"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 1
-        }
-        action = {
-          type = "expire"
+        Sid       = "AllowPublicRead"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.processed_buckets[each.key].arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:ExistingObjectTag/private" = "true"
+          }
         }
       }
     ]
   })
+  
+  depends_on = [aws_s3_bucket_public_access_block.processed_buckets]
+}
+
+#===============================================================================
+# ECR Repository Reference (managed by CI/CD pipeline)
+#===============================================================================
+
+# Reference to ECR repository created by GitHub Actions
+data "aws_ecr_repository" "lambda_repo" {
+  name = "${local.name_prefix}-lambda"
 }
 
 #===============================================================================
@@ -239,7 +242,7 @@ locals {
   local_image_tag = "v${local.code_hash}"
   
   # Final image URI - use pre-built or local
-  lambda_image_uri = local.use_prebuilt_image ? var.lambda_image_uri : "${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag}"
+  lambda_image_uri = local.use_prebuilt_image ? var.lambda_image_uri : "${data.aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag}"
 }
 
 # Local Docker build (only if no pre-built image provided)
@@ -250,7 +253,7 @@ resource "null_resource" "lambda_image_build" {
     lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
     package_hash     = filemd5("${path.module}/../package.json")
     dockerfile_hash  = filemd5("${path.module}/../Dockerfile")
-    ecr_repo_url     = aws_ecr_repository.lambda_repo.repository_url
+    ecr_repo_url     = data.aws_ecr_repository.lambda_repo.repository_url
     image_tag        = local.local_image_tag
   }
 
@@ -259,21 +262,21 @@ resource "null_resource" "lambda_image_build" {
       echo "🏗️ Building Lambda image locally (consider using CI/CD pipeline instead)"
       
       # Login to ECR
-      aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${aws_ecr_repository.lambda_repo.repository_url}
+      aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${data.aws_ecr_repository.lambda_repo.repository_url}
       
       # Build and tag the image with unique tag
-      docker build -t ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag} ${path.module}/..
+      docker build -t ${data.aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag} ${path.module}/..
       
       # Also tag as latest for convenience
-      docker tag ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag} ${aws_ecr_repository.lambda_repo.repository_url}:latest
+      docker tag ${data.aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag} ${data.aws_ecr_repository.lambda_repo.repository_url}:latest
       
       # Push both tags
-      docker push ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag}
-      docker push ${aws_ecr_repository.lambda_repo.repository_url}:latest
+      docker push ${data.aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag}
+      docker push ${data.aws_ecr_repository.lambda_repo.repository_url}:latest
     EOT
   }
 
-  depends_on = [aws_ecr_repository.lambda_repo]
+  depends_on = [data.aws_ecr_repository.lambda_repo]
 }
 
 #===============================================================================
@@ -408,14 +411,10 @@ resource "aws_lambda_function" "photo_processor" {
     Name = "${local.name_prefix}-photo-processor"
   })
   
-  depends_on = flatten([
-    [
-      aws_iam_role_policy_attachment.lambda_basic,
-      aws_cloudwatch_log_group.lambda_logs,
-    ],
-    # Only depend on local build if not using pre-built image
-    local.use_prebuilt_image ? [] : [null_resource.lambda_image_build[0]]
-  ])
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_cloudwatch_log_group.lambda_logs,
+  ]
 }
 
 #===============================================================================

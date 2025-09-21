@@ -295,6 +295,9 @@ exports.handler = async (event) => {
 		// Determine target bucket from bucket mappings
 		const bucketMapping = CONFIG.BUCKET_MAPPINGS[sourceBucket];
 		const targetBucket = bucketMapping?.processed || sourceBucket;
+		
+		// Check if we're using a separate processed bucket (affects folder structure)
+		const isUsingSeparateBucket = bucketMapping?.processed && bucketMapping.processed !== sourceBucket;
 
 		console.info(`Processing file: ${sourceBucket}/${key} → ${targetBucket}`);
 		console.info(`Bucket mapping found: ${bucketMapping ? 'yes' : 'no'} (using ${targetBucket})`);
@@ -449,13 +452,15 @@ exports.handler = async (event) => {
 		// Check for duplicates if enabled
 		if (CONFIG.CHECK_DUPLICATES) {
 			console.info("Checking for potential duplicates");
+			// Use empty prefix for separate processed buckets, processed/ prefix for same bucket
+			const duplicateSearchPrefix = isUsingSeparateBucket ? '' : CONFIG.PROCESSED_PREFIX;
 			const duplicateCheck = await checkForDuplicates(
 				targetBucket, 
 				shotDate, 
 				camera, 
 				actualFileSize,
 				exif,
-				CONFIG.PROCESSED_PREFIX
+				duplicateSearchPrefix
 			);
 			
 			if (duplicateCheck.isDuplicate) {
@@ -530,7 +535,8 @@ exports.handler = async (event) => {
 		}
 
 		// Create comprehensive metadata object
-		const photoFolder = `${CONFIG.PROCESSED_PREFIX}${baseName}/`;
+		// If we're using a separate processed bucket, don't add processed/ prefix
+		const photoFolder = isUsingSeparateBucket ? `${baseName}/` : `${CONFIG.PROCESSED_PREFIX}${baseName}/`;
 		const metadata = {
 			originalKey: key,
 			newBaseName: baseName,
@@ -683,7 +689,7 @@ exports.handler = async (event) => {
 			baseName,
 			originalKey: key,
 			processedFiles: Object.values(metadata.versions),
-			metadata: `processed/${baseName}.json`,
+			metadata: `${photoFolder}${baseName}.json`,
 			processingMetrics: {
 				totalTimeMs: totalTime,
 				downloadTimeMs: downloadTime,
