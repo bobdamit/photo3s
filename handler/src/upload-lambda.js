@@ -408,8 +408,6 @@ async function downloadImage(sourceBucket, key) {
 		throw new Error("Empty S3 body");
 	}
 
-	console.info(`Body: ${JSON.stringify(original.Body)}, key: ${key}, Bucket: ${sourceBucket}`);
-
 	const chunks = [];
 	for await (const chunk of original.Body) chunks.push(chunk);
 	const imageBuffer = Buffer.concat(chunks);
