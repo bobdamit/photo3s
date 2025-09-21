@@ -174,6 +174,46 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
   }
 }
 
+# Public access configuration for processed buckets (allow public read access)
+resource "aws_s3_bucket_public_access_block" "processed_buckets" {
+  for_each = var.create_buckets ? local.bucket_pairs : {}
+  
+  bucket = aws_s3_bucket.processed_buckets[each.key].id
+
+  # Allow public access for serving photos
+  block_public_acls       = true  # Still block public ACLs for security
+  block_public_policy     = false # Allow bucket policies (needed for public read)
+  ignore_public_acls      = true  # Ignore public ACLs for security  
+  restrict_public_buckets = false # Allow bucket to be public via policy
+}
+
+# Bucket policy to allow public read access to processed photos
+resource "aws_s3_bucket_policy" "processed_buckets" {
+  for_each = var.create_buckets ? local.bucket_pairs : {}
+  
+  bucket = aws_s3_bucket.processed_buckets[each.key].id
+  
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowPublicRead"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.processed_buckets[each.key].arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:ExistingObjectTag/private" = "true"
+          }
+        }
+      }
+    ]
+  })
+  
+  depends_on = [aws_s3_bucket_public_access_block.processed_buckets]
+}
+
 #===============================================================================
 # ECR Repository Reference (managed by CI/CD pipeline)
 #===============================================================================
