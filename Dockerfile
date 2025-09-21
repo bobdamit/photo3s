@@ -13,7 +13,7 @@ ENV npm_config_sharp_libvips_binary_host="https://github.com/lovell/sharp-libvip
 RUN npm ci --only=production --no-audit --no-fund
 
 # Copy Lambda function code
-COPY upload-lambda.js ${LAMBDA_TASK_ROOT}/
+COPY handler/src/upload-lambda.js ${LAMBDA_TASK_ROOT}/
 
 # Set the CMD to your handler
 CMD [ "upload-lambda.handler" ]

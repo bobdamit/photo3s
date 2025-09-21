@@ -2,9 +2,12 @@
   "name": "photo-processing-lambda",
   "version": "1.0.0",
   "description": "AWS Lambda function to process photo uploads - creates multiple sizes and extracts metadata",
-  "main": "upload-lambda.js",
+  "type": "module",
+  "main": "handler/src/upload-lambda.js",
   "scripts": {
-    "test": "echo \"✅ No tests defined yet - syntax validation passed\""
+    "test": "jest",
+    "test:watch": "jest --watchAll",
+    "test:coverage": "jest --coverage"
   },
   "keywords": [
     "aws",
@@ -19,8 +22,13 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.658.1",
-    "sharp": "^0.33.5",
-    "exif-parser": "^0.1.12"
+    "exif-parser": "^0.1.12",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "aws-sdk-client-mock": "^4.1.0",
+    "aws-sdk-mock": "^6.2.1",
+    "jest": "^29.7.0"
   },
   "engines": {
     "node": ">=20.0.0"

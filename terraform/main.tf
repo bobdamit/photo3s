@@ -24,12 +24,10 @@ locals {
   
   # Lambda environment variables
   lambda_environment = {
-    PROCESSED_PREFIX         = "processed/"
     DELETE_ORIGINAL          = tostring(var.delete_original)
     CHECK_DUPLICATES         = tostring(var.check_duplicates)
     DUPLICATE_ACTION         = var.duplicate_action
     DUPLICATES_PREFIX        = "duplicates/"
-    SKIP_PROCESSED_FOLDER    = "true"
     ALLOWED_SOURCE_BUCKETS   = join(",", local.ingress_buckets)
     BUCKET_MAPPINGS          = jsonencode(local.lambda_bucket_mappings)
   }

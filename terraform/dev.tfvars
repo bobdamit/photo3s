@@ -18,7 +18,7 @@ lambda_memory  = 512
 lambda_timeout = 60
 delete_original = false  # S3 lifecycle policies handle cleanup automatically
 check_duplicates = true
-duplicate_action = "move"
+duplicate_action = "replace"  # Replace existing processed files with new uploads
 
 # Monitoring
 enable_monitoring = true

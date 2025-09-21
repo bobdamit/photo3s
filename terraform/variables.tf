@@ -110,13 +110,13 @@ variable "check_duplicates" {
 }
 
 variable "duplicate_action" {
-  description = "Action for duplicate files: delete, move, or keep"
+  description = "Action for duplicate files: delete, move, keep, or replace"
   type        = string
-  default     = "move"
+  default     = "replace"
   
   validation {
-    condition     = contains(["delete", "move", "keep"], var.duplicate_action)
-    error_message = "Duplicate action must be delete, move, or keep."
+    condition     = contains(["delete", "move", "keep", "replace"], var.duplicate_action)
+    error_message = "Duplicate action must be delete, move, keep, or replace."
   }
 }
 
