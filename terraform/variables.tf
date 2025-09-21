@@ -97,6 +97,12 @@ variable "ingress_retention_days" {
   }
 }
 
+variable "lambda_image_uri" {
+  description = "Pre-built Lambda container image URI from ECR (overrides local Docker build)"
+  type        = string
+  default     = ""
+}
+
 variable "check_duplicates" {
   description = "Whether to check for duplicates before processing"
   type        = bool

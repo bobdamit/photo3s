@@ -221,43 +221,54 @@ resource "aws_ecr_lifecycle_policy" "lambda_repo" {
 }
 
 #===============================================================================
-# Docker Image Build and Push
+# Docker Image Build and Push (Legacy - prefer pre-built images)
 #===============================================================================
 
-# Generate unique tag based on code changes
+# Only build locally if no pre-built image URI is provided
 locals {
-  # Create a hash of all code files to generate unique image tags
+  # Use pre-built image if provided, otherwise build locally
+  use_prebuilt_image = var.lambda_image_uri != ""
+  
+  # Generate unique tag for local builds only
   code_hash = substr(sha256(join("", [
     filemd5("${path.module}/../upload-lambda.js"),
     filemd5("${path.module}/../package.json"),
     filemd5("${path.module}/../Dockerfile")
   ])), 0, 8)
   
-  image_tag = "v${local.code_hash}"
+  local_image_tag = "v${local.code_hash}"
+  
+  # Final image URI - use pre-built or local
+  lambda_image_uri = local.use_prebuilt_image ? var.lambda_image_uri : "${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag}"
 }
 
+# Local Docker build (only if no pre-built image provided)
 resource "null_resource" "lambda_image_build" {
+  count = local.use_prebuilt_image ? 0 : 1
+  
   triggers = {
     lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
     package_hash     = filemd5("${path.module}/../package.json")
     dockerfile_hash  = filemd5("${path.module}/../Dockerfile")
     ecr_repo_url     = aws_ecr_repository.lambda_repo.repository_url
-    image_tag        = local.image_tag
+    image_tag        = local.local_image_tag
   }
 
   provisioner "local-exec" {
     command = <<-EOT
+      echo "🏗️ Building Lambda image locally (consider using CI/CD pipeline instead)"
+      
       # Login to ECR
       aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${aws_ecr_repository.lambda_repo.repository_url}
       
       # Build and tag the image with unique tag
-      docker build -t ${aws_ecr_repository.lambda_repo.repository_url}:${local.image_tag} ${path.module}/..
+      docker build -t ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag} ${path.module}/..
       
       # Also tag as latest for convenience
-      docker tag ${aws_ecr_repository.lambda_repo.repository_url}:${local.image_tag} ${aws_ecr_repository.lambda_repo.repository_url}:latest
+      docker tag ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag} ${aws_ecr_repository.lambda_repo.repository_url}:latest
       
       # Push both tags
-      docker push ${aws_ecr_repository.lambda_repo.repository_url}:${local.image_tag}
+      docker push ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag}
       docker push ${aws_ecr_repository.lambda_repo.repository_url}:latest
     EOT
   }
@@ -373,9 +384,9 @@ resource "aws_lambda_function" "photo_processor" {
   function_name = "${local.name_prefix}-photo-processor"
   role         = aws_iam_role.lambda_role.arn
   
-  # Container image configuration - use unique tag based on code hash
+  # Container image configuration - use pre-built or locally built image
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:${local.image_tag}"
+  image_uri    = local.lambda_image_uri
   
   # Function configuration
   memory_size = var.lambda_memory
@@ -397,11 +408,14 @@ resource "aws_lambda_function" "photo_processor" {
     Name = "${local.name_prefix}-photo-processor"
   })
   
-  depends_on = [
-    aws_iam_role_policy_attachment.lambda_basic,
-    aws_cloudwatch_log_group.lambda_logs,
-    null_resource.lambda_image_build
-  ]
+  depends_on = flatten([
+    [
+      aws_iam_role_policy_attachment.lambda_basic,
+      aws_cloudwatch_log_group.lambda_logs,
+    ],
+    # Only depend on local build if not using pre-built image
+    local.use_prebuilt_image ? [] : [null_resource.lambda_image_build[0]]
+  ])
 }
 
 #===============================================================================
