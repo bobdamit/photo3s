@@ -17,7 +17,6 @@ locals {
   
   # Lambda environment variables
   lambda_environment = {
-    AWS_REGION                = var.aws_region
     PROCESSED_PREFIX         = "processed/"
     DELETE_ORIGINAL          = tostring(var.delete_original)
     CHECK_DUPLICATES         = tostring(var.check_duplicates)
@@ -80,30 +79,22 @@ resource "aws_s3_bucket_lifecycle_configuration" "ingress_buckets" {
   bucket = aws_s3_bucket.ingress_buckets[each.key].id
 
   rule {
-    id     = "cleanup_incomplete_uploads"
+    id     = "delete_all_files"
     status = "Enabled"
-
+    
+    # Delete all files after retention period - ingress buckets are ephemeral
+    filter {}
+    
+    expiration {
+      days = var.ingress_retention_days
+    }
+    
+    noncurrent_version_expiration {
+      noncurrent_days = var.ingress_retention_days
+    }
+    
     abort_incomplete_multipart_upload {
-      days_after_initiation = 7
-    }
-  }
-  
-  rule {
-    id     = "transition_duplicates"
-    status = "Enabled"
-    
-    filter {
-      prefix = "duplicates/"
-    }
-
-    transition {
-      days          = 30
-      storage_class = "STANDARD_IA"
-    }
-    
-    transition {
-      days          = 90
-      storage_class = "GLACIER"
+      days_after_initiation = var.ingress_retention_days
     }
   }
 }
@@ -151,6 +142,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
     id     = "cleanup_incomplete_uploads"
     status = "Enabled"
 
+    filter {}
+
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
@@ -159,6 +152,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
   rule {
     id     = "transition_old_versions"
     status = "Enabled"
+    
+    filter {}
     
     noncurrent_version_transition {
       noncurrent_days = 30
@@ -207,36 +202,78 @@ resource "aws_ecr_lifecycle_policy" "lambda_repo" {
         action = {
           type = "expire"
         }
+      },
+      {
+        rulePriority = 2
+        description  = "Delete untagged images"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
+        }
+        action = {
+          type = "expire"
+        }
       }
     ]
   })
 }
 
 #===============================================================================
-# Docker Image Build and Push
+# Docker Image Build and Push (Legacy - prefer pre-built images)
 #===============================================================================
 
-resource "docker_image" "lambda_image" {
-  name = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+# Only build locally if no pre-built image URI is provided
+locals {
+  # Use pre-built image if provided, otherwise build locally
+  use_prebuilt_image = var.lambda_image_uri != ""
   
-  build {
-    context    = "${path.module}/.."
-    dockerfile = "Dockerfile"
-    
-    tag = ["${aws_ecr_repository.lambda_repo.repository_url}:latest"]
-  }
+  # Generate unique tag for local builds only
+  code_hash = substr(sha256(join("", [
+    filemd5("${path.module}/../upload-lambda.js"),
+    filemd5("${path.module}/../package.json"),
+    filemd5("${path.module}/../Dockerfile")
+  ])), 0, 8)
+  
+  local_image_tag = "v${local.code_hash}"
+  
+  # Final image URI - use pre-built or local
+  lambda_image_uri = local.use_prebuilt_image ? var.lambda_image_uri : "${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag}"
+}
+
+# Local Docker build (only if no pre-built image provided)
+resource "null_resource" "lambda_image_build" {
+  count = local.use_prebuilt_image ? 0 : 1
   
   triggers = {
     lambda_code_hash = filemd5("${path.module}/../upload-lambda.js")
     package_hash     = filemd5("${path.module}/../package.json")
     dockerfile_hash  = filemd5("${path.module}/../Dockerfile")
+    ecr_repo_url     = aws_ecr_repository.lambda_repo.repository_url
+    image_tag        = local.local_image_tag
   }
-}
 
-resource "docker_registry_image" "lambda_image" {
-  name = docker_image.lambda_image.name
-  
-  triggers = docker_image.lambda_image.triggers
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "🏗️ Building Lambda image locally (consider using CI/CD pipeline instead)"
+      
+      # Login to ECR
+      aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${aws_ecr_repository.lambda_repo.repository_url}
+      
+      # Build and tag the image with unique tag
+      docker build -t ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag} ${path.module}/..
+      
+      # Also tag as latest for convenience
+      docker tag ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag} ${aws_ecr_repository.lambda_repo.repository_url}:latest
+      
+      # Push both tags
+      docker push ${aws_ecr_repository.lambda_repo.repository_url}:${local.local_image_tag}
+      docker push ${aws_ecr_repository.lambda_repo.repository_url}:latest
+    EOT
+  }
+
+  depends_on = [aws_ecr_repository.lambda_repo]
 }
 
 #===============================================================================
@@ -347,9 +384,9 @@ resource "aws_lambda_function" "photo_processor" {
   function_name = "${local.name_prefix}-photo-processor"
   role         = aws_iam_role.lambda_role.arn
   
-  # Container image configuration
+  # Container image configuration - use pre-built or locally built image
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}@${docker_registry_image.lambda_image.sha256_digest}"
+  image_uri    = local.lambda_image_uri
   
   # Function configuration
   memory_size = var.lambda_memory
@@ -371,10 +408,14 @@ resource "aws_lambda_function" "photo_processor" {
     Name = "${local.name_prefix}-photo-processor"
   })
   
-  depends_on = [
-    aws_iam_role_policy_attachment.lambda_basic,
-    aws_cloudwatch_log_group.lambda_logs
-  ]
+  depends_on = flatten([
+    [
+      aws_iam_role_policy_attachment.lambda_basic,
+      aws_cloudwatch_log_group.lambda_logs,
+    ],
+    # Only depend on local build if not using pre-built image
+    local.use_prebuilt_image ? [] : [null_resource.lambda_image_build[0]]
+  ])
 }
 
 #===============================================================================

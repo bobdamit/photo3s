@@ -36,8 +36,8 @@ const CONFIG = {
 	// Comma-separated list of allowed source buckets (optional - if not set, allows any bucket)
 	ALLOWED_SOURCE_BUCKETS: process.env.ALLOWED_SOURCE_BUCKETS?.split(',').map(b => b.trim()),
 
-	// Target bucket for processed files (if different from source)
-	PROCESSED_BUCKET: process.env.PROCESSED_BUCKET || null, // null means use same bucket as source
+	// Bucket mappings: ingress bucket → processed bucket (JSON object)
+	BUCKET_MAPPINGS: process.env.BUCKET_MAPPINGS ? JSON.parse(process.env.BUCKET_MAPPINGS) : {},
 
 	// Prefix for processed files
 	PROCESSED_PREFIX: process.env.PROCESSED_PREFIX || 'processed/',
@@ -66,6 +66,13 @@ const CONFIG = {
 	// Enable detailed logging
 	DETAILED_LOGGING: process.env.DETAILED_LOGGING === 'true'
 };
+
+// Log configuration at startup for debugging
+console.info('Lambda Configuration:');
+console.info('- Allowed source buckets:', CONFIG.ALLOWED_SOURCE_BUCKETS || 'any');
+console.info('- Bucket mappings:', JSON.stringify(CONFIG.BUCKET_MAPPINGS, null, 2));
+console.info('- Processed prefix:', CONFIG.PROCESSED_PREFIX);
+console.info('- Delete original:', CONFIG.DELETE_ORIGINAL);
 
 /**
  * Check for potential duplicates by searching existing processed files
@@ -285,10 +292,12 @@ exports.handler = async (event) => {
 		const fileSize = record.s3.object.size || 'unknown';
 		processingPhase = 'validation';
 
-		// Determine target bucket (same as source or specified processed bucket)
-		const targetBucket = CONFIG.PROCESSED_BUCKET || sourceBucket;
+		// Determine target bucket from bucket mappings
+		const bucketMapping = CONFIG.BUCKET_MAPPINGS[sourceBucket];
+		const targetBucket = bucketMapping?.processed || sourceBucket;
 
 		console.info(`Processing file: ${sourceBucket}/${key} → ${targetBucket}`);
+		console.info(`Bucket mapping found: ${bucketMapping ? 'yes' : 'no'} (using ${targetBucket})`);
 		console.info(`Original file size: ${typeof fileSize === 'number' ? (fileSize / 1024 / 1024).toFixed(2) + 'MB' : fileSize}`);
 
 		// Check file size limits
