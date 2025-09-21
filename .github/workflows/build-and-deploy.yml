@@ -204,7 +204,16 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform
-        run: terraform init
+        run: |
+          echo "🔍 Initializing Terraform with S3 backend..."
+          echo "Environment: ${{ steps.env.outputs.environment }}"
+          echo "Expected backend bucket: photo3s-dev-terraform-state"
+          
+          # Check if we can access the state bucket
+          aws s3 ls s3://photo3s-dev-terraform-state/ || echo "⚠️ Cannot access state bucket"
+          
+          # Initialize Terraform
+          terraform init -reconfigure
 
       - name: Terraform Plan
         id: plan
