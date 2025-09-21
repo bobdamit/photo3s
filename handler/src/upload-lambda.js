@@ -480,23 +480,23 @@ async function processImageVariants(imageBuffer) {
 
 async function buildMetadata({ key, baseName, shotDate, camera, original, imageBuffer, exif, ext, isUsingSeparateBucket }) {
 	const imageMetadata = await sharp(imageBuffer).metadata();
-	const photoFolder = isUsingSeparateBucket ? `${baseName}/` : `${CONFIG.PROCESSED_PREFIX}${baseName}/`;
+	const photoFolder = `${baseName}/`;
 	return {
-		photoFolder,
+		photoFolder : photoFolder,
 		originalKey: key,
 		newBaseName: baseName,
 		timestamp: shotDate.toISOString(),
-		camera,
+		camera : camera,
 		fileSize: original.ContentLength || imageBuffer.length,
 		originalDimensions: { width: imageMetadata.width, height: imageMetadata.height, format: ext },
 		exifData: exif ? { make: exif.tags.Make, model: exif.tags.Model } : null,
 		processedAt: new Date().toISOString(),
 		versions: {
-			original: `${photoFolder}${baseName}.${ext}`,
-			large: `${photoFolder}${baseName}_large.jpg`,
-			medium: `${photoFolder}${baseName}_medium.jpg`,
-			small: `${photoFolder}${baseName}_small.jpg`,
-			thumb: `${photoFolder}${baseName}_thumb.jpg`,
+			original: buildPhotoPath(photoFolder, baseName, 'original'),
+			large: buildPhotoPath(photoFolder, baseName, 'large'),
+			medium: buildPhotoPath(photoFolder, baseName, 'medium'),
+			small: buildPhotoPath(photoFolder, baseName, 'small'),
+			thumb: buildPhotoPath(photoFolder, baseName, 'thumb'),
 		}
 	};
 }
@@ -510,10 +510,10 @@ async function uploadAllFiles({ imageBuffer, original, targetBucket, photoFolder
 			Bucket: targetBucket, Key: `${photoFolder}${baseName}.${ext}`, Body: imageBuffer,
 			ContentType: original.ContentType
 		})),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: `${photoFolder}${baseName}_large.jpg`, Body: large, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: `${photoFolder}${baseName}_medium.jpg`, Body: medium, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: `${photoFolder}${baseName}_small.jpg`, Body: small, ContentType: 'image/jpeg' })),
-		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: `${photoFolder}${baseName}_thumb.jpg`, Body: thumb, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, baseName, 'large'), Body: large, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, baseName, 'medium'), Body: medium, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, baseName, 'small'), Body: small, ContentType: 'image/jpeg' })),
+		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, baseName, 'thumb'), Body: thumb, ContentType: 'image/jpeg' })),
 		uploadWithRetry(new PutObjectCommand({
 			Bucket: targetBucket, Key: `${photoFolder}${baseName}.json`, Body: JSON.stringify(metadata, null, 2),
 			ContentType: 'application/json'
@@ -522,7 +522,19 @@ async function uploadAllFiles({ imageBuffer, original, targetBucket, photoFolder
 	await Promise.all(uploads);
 	return Date.now() - start;
 }
-
+	
+/**
+ * Consistently build photo path for different sizes
+ * @param  photoFolder 
+ * @param {*} baseName 
+ * @param {*} sizeLabel 
+ * @returns 
+ */
+function buildPhotoPath(photoFolder, baseName, sizeLabel) {
+	const sizeSuffix = sizeLabel === 'original' ? '' : `_${sizeLabel}`;
+	const extension = sizeLabel === 'original' ? '' : '.jpg';
+	return `${photoFolder}${sizeSuffix}${extension}`;
+}
 
 function buildSuccessResponse({ baseName, key, metadata, downloadTime, processingTime, uploadTime, totalTime, actualFileSize }) {
 	return {
