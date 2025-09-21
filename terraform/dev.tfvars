@@ -10,8 +10,7 @@ bucket_roots  = ["sailing", "mics"]       # Creates 4 buckets total:
                                               #   photo3s-dev-sailing-processed
                                               #   photo3s-dev-mics-ingress
                                               #   photo3s-dev-mics-processed
-create_buckets = true
-ingress_retention_days = 3                   # Ephemeral ingress - delete ALL files after 3 days
+ingress_retention_days = 2                   # Ephemeral ingress - delete ALL files
 
 # Lambda Configuration
 lambda_memory  = 512

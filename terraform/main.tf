@@ -46,7 +46,7 @@ locals {
 
 # Ingress buckets (where photos are uploaded)
 resource "aws_s3_bucket" "ingress_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = each.value.ingress
   
@@ -58,7 +58,7 @@ resource "aws_s3_bucket" "ingress_buckets" {
 }
 
 resource "aws_s3_bucket_versioning" "ingress_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = aws_s3_bucket.ingress_buckets[each.key].id
   versioning_configuration {
@@ -67,7 +67,7 @@ resource "aws_s3_bucket_versioning" "ingress_buckets" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "ingress_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = aws_s3_bucket.ingress_buckets[each.key].id
 
@@ -79,7 +79,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "ingress_buckets" 
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "ingress_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = aws_s3_bucket.ingress_buckets[each.key].id
 
@@ -106,7 +106,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "ingress_buckets" {
 
 # Processed buckets (where processed photos are stored)
 resource "aws_s3_bucket" "processed_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = each.value.processed
   
@@ -118,7 +118,7 @@ resource "aws_s3_bucket" "processed_buckets" {
 }
 
 resource "aws_s3_bucket_versioning" "processed_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = aws_s3_bucket.processed_buckets[each.key].id
   versioning_configuration {
@@ -127,7 +127,7 @@ resource "aws_s3_bucket_versioning" "processed_buckets" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "processed_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = aws_s3_bucket.processed_buckets[each.key].id
 
@@ -139,7 +139,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "processed_buckets
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = aws_s3_bucket.processed_buckets[each.key].id
 
@@ -174,7 +174,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed_buckets" {
 
 # Public access configuration for processed buckets (allow public read access)
 resource "aws_s3_bucket_public_access_block" "processed_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = aws_s3_bucket.processed_buckets[each.key].id
 
@@ -187,7 +187,7 @@ resource "aws_s3_bucket_public_access_block" "processed_buckets" {
 
 # Bucket policy to allow public read and list access to processed photos
 resource "aws_s3_bucket_policy" "processed_buckets" {
-  for_each = var.create_buckets ? local.bucket_pairs : {}
+  for_each = local.bucket_pairs
   
   bucket = aws_s3_bucket.processed_buckets[each.key].id
   

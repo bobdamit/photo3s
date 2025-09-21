@@ -35,10 +35,10 @@ output "processed_buckets" {
 
 output "created_buckets" {
   description = "Map of created S3 buckets by type"
-  value = var.create_buckets ? {
+  value = {
     ingress   = { for k, v in aws_s3_bucket.ingress_buckets : k => v.bucket }
     processed = { for k, v in aws_s3_bucket.processed_buckets : k => v.bucket }
-  } : {}
+  }
 }
 
 output "lambda_log_group" {

@@ -9,7 +9,7 @@ bucket_roots  = ["sailing", "mics"]                # Creates 4 buckets total:
                                                    #   photo3s-prod-sailing-processed
                                                    #   photo3s-prod-mics-ingress
                                                    #   photo3s-prod-mics-processed
-create_buckets = true
+ingress_retention_days = 1  # Fast cleanup in production - originals deleted after processing
 
 # Lambda Configuration
 lambda_memory    = 1024  # More memory for production

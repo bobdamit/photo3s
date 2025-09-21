@@ -50,12 +50,6 @@ variable "bucket_prefix" {
   }
 }
 
-variable "create_buckets" {
-  description = "Whether to create the source buckets (false if using existing buckets)"
-  type        = bool
-  default     = true
-}
-
 
 
 variable "lambda_memory" {
@@ -89,7 +83,7 @@ variable "delete_original" {
 variable "ingress_retention_days" {
   description = "Number of days to retain ALL files in ephemeral ingress buckets before automatic deletion"
   type        = number
-  default     = 3
+  default     = 2
   
   validation {
     condition     = var.ingress_retention_days >= 1 && var.ingress_retention_days <= 30
