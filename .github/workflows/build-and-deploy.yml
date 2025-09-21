@@ -26,7 +26,6 @@ on:
     paths-ignore:
       - '**.md'
   push:
-    branches: [ main ]
     paths-ignore:
       - '**.md'
 
@@ -35,18 +34,31 @@ env:
   TF_VERSION: '1.13.3'
 
 jobs:
-  # Job 1: Build and Push Docker Image
+  # Job 1: Build Docker Image (all branches) and Push to ECR (main only)
   build-docker:
     runs-on: ubuntu-latest
     outputs:
       image-uri: ${{ steps.build.outputs.image-uri }}
       image-tag: ${{ steps.build.outputs.image-tag }}
+      should-deploy: ${{ steps.deploy-check.outputs.should-deploy }}
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check if should deploy to ECR
+        id: deploy-check
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "🚀 Will push to ECR (main branch or manual trigger)"
+          else
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+            echo "🏗️ Build only (feature branch)"
+          fi
+
       - name: Configure AWS credentials
+        if: steps.deploy-check.outputs.should-deploy == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -77,17 +89,34 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Amazon ECR
+        if: steps.deploy-check.outputs.should-deploy == 'true'
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Create ECR repository if it doesn't exist
+        if: steps.deploy-check.outputs.should-deploy == 'true'
         run: |
           ENV=${{ steps.env.outputs.environment }}
           REPO_NAME="photo3s-${ENV}-lambda"
           aws ecr describe-repositories --repository-names $REPO_NAME --region ${{ env.AWS_REGION }} || \
           aws ecr create-repository --repository-name $REPO_NAME --region ${{ env.AWS_REGION }}
 
-      - name: Build and push Docker image
+      - name: Build Docker image (all branches)
+        id: build-local
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+        run: |
+          REPO_NAME="photo3s-${ENVIRONMENT}-lambda"
+          
+          echo "🏗️ Building Docker image locally..."
+          docker build -t ${REPO_NAME}:${IMAGE_TAG} .
+          docker tag ${REPO_NAME}:${IMAGE_TAG} ${REPO_NAME}:latest
+          
+          echo "✅ Image built locally: ${REPO_NAME}:${IMAGE_TAG}"
+
+      - name: Push to ECR (main branch only)
+        if: steps.deploy-check.outputs.should-deploy == 'true'
         id: build
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -97,30 +126,35 @@ jobs:
           REPO_NAME="photo3s-${ENVIRONMENT}-lambda"
           IMAGE_URI="${ECR_REGISTRY}/${REPO_NAME}:${IMAGE_TAG}"
           
-          echo "🏗️ Building Docker image..."
-          docker build -t $IMAGE_URI .
+          echo "📤 Tagging for ECR and pushing..."
+          docker tag ${REPO_NAME}:${IMAGE_TAG} $IMAGE_URI
+          docker tag ${REPO_NAME}:latest ${ECR_REGISTRY}/${REPO_NAME}:latest
           
-          echo "📤 Pushing image to ECR..."
           docker push $IMAGE_URI
+          docker push ${ECR_REGISTRY}/${REPO_NAME}:latest
           
-          # Also tag and push as latest
-          docker tag $IMAGE_URI "${ECR_REGISTRY}/${REPO_NAME}:latest"
-          docker push "${ECR_REGISTRY}/${REPO_NAME}:latest"
-          
-          echo "✅ Image built and pushed: $IMAGE_URI"
+          echo "✅ Image pushed to ECR: $IMAGE_URI"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
 
-      - name: Image build summary
+      - name: Build summary
         run: |
-          echo "## Docker Build Summary 🐳" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image URI:** \`${{ steps.build.outputs.image-uri }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.deploy-check.outputs.should-deploy }}" = "true" ]; then
+            echo "## Docker Build & Push Summary 🐳📤" >> $GITHUB_STEP_SUMMARY
+            echo "- **Action:** Build + Push to ECR" >> $GITHUB_STEP_SUMMARY
+            echo "- **Image URI:** \`${{ steps.build.outputs.image-uri }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Docker Build Summary 🐳" >> $GITHUB_STEP_SUMMARY  
+            echo "- **Action:** Build Only (feature branch)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Local Image:** \`photo3s-${{ steps.env.outputs.environment }}-lambda:${{ steps.tag.outputs.image-tag }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "- **Git SHA:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Environment:** \`${{ steps.env.outputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
 
-  # Job 2: Deploy Infrastructure with pre-built image
+  # Job 2: Deploy Infrastructure (only when ECR push happened)
   deploy-infrastructure:
     runs-on: ubuntu-latest
     needs: [build-docker]
+    if: needs.build-docker.outputs.should-deploy == 'true'
     
     steps:
       - name: Checkout code
