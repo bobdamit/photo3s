@@ -508,6 +508,8 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 	
 	return {
 		collection: 'none',
+		tags: [],
+		altText: '',
 		photoFolder : photoFolder,
 		originalKey: key,
 		shotDate: shotDate.toISOString(),
