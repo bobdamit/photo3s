@@ -388,6 +388,14 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
 # Lambda Function
 #===============================================================================
 
+# Force Lambda function updates when container image changes
+resource "null_resource" "lambda_image_trigger" {
+  triggers = {
+    # This will change whenever the image URI changes, forcing Lambda update
+    image_uri = local.lambda_image_uri
+  }
+}
+
 resource "aws_lambda_function" "photo_processor" {
   function_name = "${local.name_prefix}-photo-processor"
   role         = aws_iam_role.lambda_role.arn
@@ -399,6 +407,13 @@ resource "aws_lambda_function" "photo_processor" {
   # Function configuration
   memory_size = var.lambda_memory
   timeout     = var.lambda_timeout
+  
+  # Force Lambda to update when container image changes
+  depends_on = [
+    null_resource.lambda_image_trigger,
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_cloudwatch_log_group.lambda_logs,
+  ]
   
   environment {
     variables = local.lambda_environment
@@ -415,11 +430,6 @@ resource "aws_lambda_function" "photo_processor" {
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-photo-processor"
   })
-  
-  depends_on = [
-    aws_iam_role_policy_attachment.lambda_basic,
-    aws_cloudwatch_log_group.lambda_logs,
-  ]
 }
 
 #===============================================================================
