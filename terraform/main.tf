@@ -212,16 +212,16 @@ resource "aws_s3_bucket_policy" "processed_buckets" {
         Action    = "s3:ListBucket"
         Resource  = aws_s3_bucket.processed_buckets[each.key].arn
       },
-      # Allow clients to write and delete only metadata.json
+      # Allow clients to write and delete only user.json
       {
-        Sid       = "AllowMetadataWrite"
+        Sid       = "AllowUserJsonEdit"
         Effect    = "Allow"
         Principal = "*"
         Action    = [
           "s3:PutObject",
           "s3:DeleteObject"
         ]
-        Resource  = "${aws_s3_bucket.processed_buckets[each.key].arn}/*/metadata.json"
+        Resource  = "${aws_s3_bucket.processed_buckets[each.key].arn}/*/user.json"
       }
     ]
   })

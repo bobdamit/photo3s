@@ -543,9 +543,6 @@ async function buildMetadata({ key, baseName, shotDate, camera, original, imageB
 	}
 	
 	return {
-		collection: 'none',
-		tags: [],
-		altText: '',
 		photoFolder : photoFolder,
 		originalKey: key,
 		shotDate: shotDate.toISOString(),
@@ -614,6 +611,13 @@ async function uploadAllFiles(
 		uploadWithRetry(new PutObjectCommand({ Bucket: targetBucket, Key: buildPhotoPath(photoFolder, originalFilename, 'thumb'), Body: thumb, ContentType: 'image/webp' })),
 		uploadWithRetry(new PutObjectCommand({
 			Bucket: targetBucket, Key: `${photoFolder}metadata.json`, Body: JSON.stringify(metadata, null, 2),
+			ContentType: 'application/json'
+		})),
+		// Create initial empty user.json for client edits
+		uploadWithRetry(new PutObjectCommand({
+			Bucket: targetBucket,
+			Key: `${photoFolder}user.json`,
+			Body: JSON.stringify({}, null, 2),
 			ContentType: 'application/json'
 		}))
 	];
