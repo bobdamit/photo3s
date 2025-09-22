@@ -112,9 +112,9 @@ describe('Lambda handler', () => {
     const result = await handler(fakeEvent);
 
     expect(result.status).toBe('success');
-    
-    // Should have uploaded 6 files: original + 4 processed versions + 1 metadata JSON
-    expect(putObjectCalls).toHaveLength(6);
+
+    // Should have uploaded 7 files: original + 4 processed versions + 1 metadata JSON + user.json
+    expect(putObjectCalls).toHaveLength(7);
 
     // Extract the photo folder name from the first upload
     const photoFolder = putObjectCalls[0].key.split('/')[0] + '/';
@@ -235,6 +235,6 @@ describe('Lambda handler', () => {
       // Verify processed versions use WebP format
       const largeFile = putObjectCalls.find(call => call.key.endsWith('large.webp'));
       expect(largeFile).toBeDefined();    // Verify all 6 files were uploaded
-    expect(putObjectCalls).toHaveLength(6);
+    expect(putObjectCalls).toHaveLength(7);
   });
 });
