@@ -211,6 +211,17 @@ resource "aws_s3_bucket_policy" "processed_buckets" {
         Principal = "*"
         Action    = "s3:ListBucket"
         Resource  = aws_s3_bucket.processed_buckets[each.key].arn
+      },
+      # Allow clients to write and delete only metadata.json
+      {
+        Sid       = "AllowMetadataWrite"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = [
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource  = "${aws_s3_bucket.processed_buckets[each.key].arn}/*/metadata.json"
       }
     ]
   })
@@ -351,13 +362,11 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
           for bucket in local.ingress_buckets : "arn:aws:s3:::${bucket}"
         ]
       },
-      # Full access to all processed buckets
+      # Process Lambda can manage objects and ACLs except write/delete of metadata.json is controlled by client permission
       {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
           "s3:ListBucket",
           "s3:PutObjectAcl"
         ]
@@ -367,6 +376,33 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
             "arn:aws:s3:::${bucket}/*"
           ]
         ])
+      },
+      # Allow Lambda full manage access to metadata.json
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = flatten([
+          for bucket in local.processed_buckets : "arn:aws:s3:::${bucket}/*/metadata.json"
+        ])
+      },
+      # Allow Lambda full manage access to images and other content
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = flatten([
+          for bucket in local.processed_buckets : [
+            "arn:aws:s3:::${bucket}/*"
+          ]
+        ])
+        Condition = {
+          StringEquals = { "s3:ExistingObjectTag/private" = "false" }
+        }
       },
       # Copy permissions between all buckets
       {
