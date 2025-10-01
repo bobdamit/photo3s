@@ -421,7 +421,7 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
 }
 
 #===============================================================================
-# Lambda Function
+# Lambda Functions
 #===============================================================================
 
 resource "aws_lambda_function" "photo_processor" {
@@ -457,6 +457,123 @@ resource "aws_lambda_function" "photo_processor" {
     Name = "${local.name_prefix}-photo-processor"
   })
 }
+
+#==========================================================
+# Client access Lambda function (for client handler)
+resource "aws_lambda_function" "photo_client_access" {
+  function_name = "${local.name_prefix}-photo-client-access"
+  role          = aws_iam_role.lambda_role.arn
+  
+  package_type = "Image"
+  image_uri    = local.photo_client_access_image_uri # new Docker image with client handler
+  
+  memory_size = var.lambda_memory
+  timeout     = var.lambda_timeout
+  
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_cloudwatch_log_group.lambda_logs,
+  ]
+  
+  environment {
+    variables = {
+      AWS_REGION       = var.aws_region
+      INGRESS_BUCKET   = local.bucket_pairs["<root_name>"].ingress  # pick the correct root
+      PROCESSED_BUCKET = local.bucket_pairs["<root_name>"].processed
+    }
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-photo-client-access"
+  })
+}
+
+
+#==========================================================
+# API Gateway Paths
+resource "aws_api_gateway_rest_api" "photo_api" {
+  name = "${local.name_prefix}-photo-api"
+}
+
+# POST /upload
+resource "aws_api_gateway_resource" "upload" {
+  rest_api_id = aws_api_gateway_rest_api.photo_api.id
+  parent_id   = aws_api_gateway_rest_api.photo_api.root_resource_id
+  path_part   = "upload"
+}
+
+resource "aws_api_gateway_method" "post_upload" {
+  rest_api_id   = aws_api_gateway_rest_api.photo_api.id
+  resource_id   = aws_api_gateway_resource.upload.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "upload_lambda" {
+  rest_api_id             = aws_api_gateway_rest_api.photo_api.id
+  resource_id             = aws_api_gateway_resource.upload.id
+  http_method             = aws_api_gateway_method.post_upload.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.photo_client_access.invoke_arn
+}
+
+# GET /photos
+resource "aws_api_gateway_resource" "photos" {
+  rest_api_id = aws_api_gateway_rest_api.photo_api.id
+  parent_id   = aws_api_gateway_rest_api.photo_api.root_resource_id
+  path_part   = "photos"
+}
+
+resource "aws_api_gateway_method" "get_photos" {
+  rest_api_id   = aws_api_gateway_rest_api.photo_api.id
+  resource_id   = aws_api_gateway_resource.photos.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "get_photos_lambda" {
+  rest_api_id             = aws_api_gateway_rest_api.photo_api.id
+  resource_id             = aws_api_gateway_resource.photos.id
+  http_method             = aws_api_gateway_method.get_photos.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.photo_client_access.invoke_arn
+}
+
+# PUT /photos/{folder}/user
+resource "aws_api_gateway_resource" "photo_folder_user" {
+  rest_api_id = aws_api_gateway_rest_api.photo_api.id
+  parent_id   = aws_api_gateway_resource.photos.id
+  path_part   = "{folder}/user"
+}
+
+resource "aws_api_gateway_method" "put_photo_user" {
+  rest_api_id   = aws_api_gateway_rest_api.photo_api.id
+  resource_id   = aws_api_gateway_resource.photo_folder_user.id
+  http_method   = "PUT"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "put_photo_user_lambda" {
+  rest_api_id             = aws_api_gateway_rest_api.photo_api.id
+  resource_id             = aws_api_gateway_resource.photo_folder_user.id
+  http_method             = aws_api_gateway_method.put_photo_user.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.photo_client_access.invoke_arn
+}
+
+
+#====================================================================
+# API Gateway Permission for Lambda
+resource "aws_lambda_permission" "api_gateway_invoke_client" {
+  statement_id  = "AllowAPIGatewayInvokeClient"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.photo_client_access.function_name
+  principal     = "apigateway.amazonaws.com"
+}
+
 
 #===============================================================================
 # CloudWatch Logs
